@@ -12,6 +12,7 @@ MessageStatus = Literal["streaming", "completed", "aborted", "error"]
 
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+    client_request_id: UUID | None = None
 
 
 class MessageView(BaseModel):
@@ -21,6 +22,7 @@ class MessageView(BaseModel):
     status: MessageStatus
     tool_calls: list[dict[str, object]] = Field(default_factory=list)
     steps: list[AgentStep] = Field(default_factory=list)
+    request_id: UUID | None = None
     created_at: datetime
 
 

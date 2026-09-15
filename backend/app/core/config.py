@@ -36,8 +36,13 @@ class Settings(BaseSettings):
     dataset_restore_on_startup: bool = False
     chat_runtime_mode: Literal["preview", "agent", "disabled"] = "disabled"
     chat_history_limit: int = 20
-    agent_max_steps: int = 8
-    agent_max_total_tokens: int = 8192
+    agent_max_steps: int = 10
+    agent_max_total_tokens: int = 49_152
+    agent_max_tool_calls_per_step: int = 3
+    agent_max_tool_budget_retries: int = 1
+    agent_max_parallel_tools: int = 3
+    agent_context_char_budget: int = 24_000
+    agent_keep_recent_tool_results: int = 6
     agent_parallel_tools: bool = True
     mcp_enabled: bool = False
     mcp_server_command: str | None = None

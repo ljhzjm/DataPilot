@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import {
+  abortMessage,
   createConversation,
   getConversation,
   listConversations,
@@ -24,6 +25,7 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   const error = ref<string | null>(null)
   let abortController: AbortController | null = null
+  let activeAssistantId: string | null = null
 
   const currentSteps = computed<AgentStep[]>(() => {
     const assistantMessages = messages.value.filter((message) => message.role === 'assistant')
@@ -99,7 +101,7 @@ export const useChatStore = defineStore('chat', () => {
       steps: [],
       created_at: nowIso(),
     }
-    const assistantMessage: ChatMessage = {
+    const assistantDraft: ChatMessage = {
       id: `local-assistant-${Date.now()}`,
       role: 'assistant',
       content: '',
@@ -108,17 +110,34 @@ export const useChatStore = defineStore('chat', () => {
       steps: [],
       created_at: nowIso(),
     }
-    messages.value.push(localUserMessage, assistantMessage)
+    messages.value.push(localUserMessage, assistantDraft)
+    const assistantMessage = messages.value[messages.value.length - 1]
+    if (!assistantMessage) {
+      isStreaming.value = false
+      abortController = null
+      return
+    }
+    activeAssistantId = assistantMessage.id
+    const clientRequestId = crypto.randomUUID()
+    let lastEventId: string | undefined
 
     try {
-      await streamMessage(
-        conversationId,
-        question,
-        (event) => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await streamMessage(
+            conversationId,
+            question,
+            {
+              clientRequestId,
+              lastEventId,
+            },
+            (event) => {
+              lastEventId = event.id || lastEventId
           if (event.event === 'start') {
             const assistantId = String(event.data.assistant_message_id ?? '')
             if (assistantId) {
               assistantMessage.id = assistantId
+              activeAssistantId = assistantId
             }
           } else if (event.event === 'step') {
             const step = event.data.step as AgentStep | undefined
@@ -129,6 +148,8 @@ export const useChatStore = defineStore('chat', () => {
             assistantMessage.content = `${assistantMessage.content ?? ''}${String(
               event.data.text ?? '',
             )}`
+          } else if (event.event === 'text_reset') {
+            assistantMessage.content = ''
           } else if (event.event === 'done') {
             assistantMessage.status = 'completed'
           } else if (event.event === 'aborted') {
@@ -137,9 +158,23 @@ export const useChatStore = defineStore('chat', () => {
             assistantMessage.status = 'error'
             error.value = String(event.data.message ?? '执行失败')
           }
-        },
-        abortController.signal,
-      )
+            },
+            abortController.signal,
+          )
+          break
+        } catch (cause) {
+          if (
+            cause instanceof DOMException &&
+            cause.name === 'AbortError'
+          ) {
+            throw cause
+          }
+          if (attempt >= 2) {
+            throw cause
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 500 * 2 ** attempt))
+        }
+      }
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === 'AbortError') {
         assistantMessage.status = 'aborted'
@@ -150,11 +185,18 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       isStreaming.value = false
       abortController = null
+      activeAssistantId = null
       await loadConversations().catch(() => undefined)
     }
   }
 
-  function stopStreaming(): void {
+  async function stopStreaming(): Promise<void> {
+    if (currentConversationId.value && activeAssistantId) {
+      await abortMessage(
+        currentConversationId.value,
+        activeAssistantId,
+      ).catch(() => undefined)
+    }
     abortController?.abort()
     isStreaming.value = false
   }

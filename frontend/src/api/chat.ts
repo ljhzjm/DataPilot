@@ -34,16 +34,27 @@ export function getConversation(conversationId: string): Promise<ConversationDet
 export async function streamMessage(
   conversationId: string,
   content: string,
+  options: {
+    clientRequestId: string
+    lastEventId?: string
+  },
   onEvent: (event: StreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  }
+  if (options.lastEventId) {
+    headers['Last-Event-ID'] = options.lastEventId
+  }
   const response = await fetch(`/api/conversations/${conversationId}/messages/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify({ content }),
+    headers,
+    body: JSON.stringify({
+      content,
+      client_request_id: options.clientRequestId,
+    }),
     signal,
   })
   if (!response.ok || !response.body) {
@@ -85,12 +96,15 @@ function consumeFrames(
 }
 
 function parseFrame(frame: string): StreamEvent | null {
+  let eventId: string | undefined
   let eventName = 'message'
   const dataLines: string[] = []
 
   for (const line of frame.split(/\r?\n/)) {
     if (line.startsWith('event:')) {
       eventName = line.slice(6).trim()
+    } else if (line.startsWith('id:')) {
+      eventId = line.slice(3).trim()
     } else if (line.startsWith('data:')) {
       dataLines.push(line.slice(5).trimStart())
     }
@@ -102,7 +116,20 @@ function parseFrame(frame: string): StreamEvent | null {
 
   const data = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
   return {
+    id: eventId,
     event: eventName as StreamEvent['event'],
     data,
   }
+}
+
+export async function abortMessage(
+  conversationId: string,
+  messageId: string,
+): Promise<void> {
+  await fetch(
+    `/api/conversations/${conversationId}/messages/${messageId}/abort`,
+    {
+      method: 'POST',
+    },
+  )
 }

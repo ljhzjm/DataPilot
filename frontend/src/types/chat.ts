@@ -69,7 +69,7 @@ export interface ChartArtifact {
 }
 
 export interface StreamEvent {
-  event: 'start' | 'step' | 'text' | 'done' | 'error' | 'aborted'
+  id?: string
+  event: 'start' | 'step' | 'text' | 'text_reset' | 'done' | 'error' | 'aborted'
   data: Record<string, unknown>
 }
-

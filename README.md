@@ -92,6 +92,15 @@ DuckDB 数据集、本地工具和 MCP 工具。
 原始文件与 Parquet 保存在 `dataset_data` Docker Volume。后端启动时会根据
 PostgreSQL 元数据恢复已经登记的 DuckDB 表。
 
+## SSE 可靠性
+
+- Agent 任务在后台独立运行，浏览器断开不会终止任务。
+- 事件写入 Redis Streams，保留 24 小时。
+- 每个事件带 `id:`，客户端通过 `Last-Event-ID` 从断点继续。
+- 每 15 秒发送一次 SSE 心跳，避免代理空闲超时。
+- `client_request_id` 保证重复提交不会创建重复消息或重复模型调用。
+- 停止按钮调用独立 abort 接口，后台任务会持久化为 `aborted`。
+
 ## MCP 架构
 
 DataPilot 通过 stdio JSON-RPC 连接独立 MCP Server，并把 MCP 工具转换成统一的

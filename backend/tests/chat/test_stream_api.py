@@ -5,7 +5,13 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from app.agent.models import AgentStep, ChatMessage, TokenUsage, ToolCall
-from app.api.dependencies import get_chat_runtime, get_conversation_service
+from app.api.dependencies import (
+    get_chat_runtime,
+    get_chat_task_manager,
+    get_conversation_service,
+    get_event_broker,
+)
+from app.chat.events import InMemoryEventBroker
 from app.chat.runtime import RuntimeEvent, RuntimeEventType
 from app.chat.schemas import (
     ConversationDetail,
@@ -14,6 +20,7 @@ from app.chat.schemas import (
     MessageStatus,
     MessageView,
 )
+from app.chat.tasks import ChatTaskManager
 from app.main import app
 
 
@@ -56,6 +63,7 @@ class FakeStore:
         content: str | None,
         status: MessageStatus = "completed",
         tool_calls: list[dict[str, object]] | None = None,
+        request_id: UUID | None = None,
     ) -> MessageView:
         conversation = self.conversations[conversation_id]
         message = MessageView(
@@ -65,6 +73,7 @@ class FakeStore:
             status=status,
             tool_calls=tool_calls or [],
             steps=[],
+            request_id=request_id,
             created_at=datetime.now(UTC),
         )
         conversation.messages.append(message)
@@ -100,6 +109,24 @@ class FakeStore:
             if message.role in {"user", "assistant"}
         ]
 
+    async def get_assistant_by_request_id(
+        self,
+        conversation_id: UUID,
+        request_id: UUID,
+    ) -> MessageView | None:
+        conversation = self.conversations[conversation_id]
+        for message in conversation.messages:
+            if message.role == "assistant" and message.request_id == request_id:
+                return message
+        return None
+
+    async def get_message(self, message_id: UUID) -> MessageView | None:
+        for conversation in self.conversations.values():
+            for message in conversation.messages:
+                if message.id == message_id:
+                    return message
+        return None
+
 
 class FakeRuntime:
     async def stream(
@@ -124,8 +151,12 @@ class FakeRuntime:
 
 def test_stream_message_persists_messages_and_steps() -> None:
     store = FakeStore()
+    broker = InMemoryEventBroker()
+    task_manager = ChatTaskManager()
     app.dependency_overrides[get_conversation_service] = lambda: store
     app.dependency_overrides[get_chat_runtime] = lambda: FakeRuntime()
+    app.dependency_overrides[get_event_broker] = lambda: broker
+    app.dependency_overrides[get_chat_task_manager] = lambda: task_manager
 
     try:
         with TestClient(app) as client:
@@ -154,5 +185,43 @@ def test_stream_message_persists_messages_and_steps() -> None:
         ]
         assert detail["messages"][1]["content"] == "分析完成"
         assert detail["messages"][1]["steps"][0]["tool_calls"][0]["name"] == "list_tables"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_stream_message_is_idempotent_for_same_client_request_id() -> None:
+    store = FakeStore()
+    broker = InMemoryEventBroker()
+    task_manager = ChatTaskManager()
+    app.dependency_overrides[get_conversation_service] = lambda: store
+    app.dependency_overrides[get_chat_runtime] = lambda: FakeRuntime()
+    app.dependency_overrides[get_event_broker] = lambda: broker
+    app.dependency_overrides[get_chat_task_manager] = lambda: task_manager
+    request_id = str(uuid4())
+
+    try:
+        with TestClient(app) as client:
+            conversation_id = client.post("/api/conversations").json()["id"]
+            payload = {
+                "content": "统计销售额",
+                "client_request_id": request_id,
+            }
+            with client.stream(
+                "POST",
+                f"/api/conversations/{conversation_id}/messages/stream",
+                json=payload,
+            ) as first:
+                first_body = "".join(first.iter_text())
+            with client.stream(
+                "POST",
+                f"/api/conversations/{conversation_id}/messages/stream",
+                json=payload,
+            ) as second:
+                second_body = "".join(second.iter_text())
+            detail = client.get(f"/api/conversations/{conversation_id}").json()
+
+        assert "event: done" in first_body
+        assert "event: done" in second_body
+        assert len(detail["messages"]) == 2
     finally:
         app.dependency_overrides.clear()

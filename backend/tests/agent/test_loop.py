@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -69,6 +70,43 @@ class StreamingScriptedModel:
             yield StreamEvent(type="finish", finish_reason="stop")
 
 
+class TextThenToolStreamingModel:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(
+        self,
+        *,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[ToolDefinition],
+    ) -> LLMResponse:
+        raise AssertionError("chat() should not be used")
+
+    async def chat_stream(
+        self,
+        *,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[ToolDefinition],
+    ) -> AsyncIterator[StreamEvent]:
+        del messages, tools
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(type="text_delta", content_delta="正在思考")
+            yield StreamEvent(
+                type="tool_call_delta",
+                tool_call_delta=ToolCallDelta(
+                    index=0,
+                    id="call-1",
+                    name="echo",
+                    arguments_delta='{"value":1}',
+                ),
+            )
+            yield StreamEvent(type="finish", finish_reason="tool_calls")
+        else:
+            yield StreamEvent(type="text_delta", content_delta="最终答案")
+            yield StreamEvent(type="finish", finish_reason="stop")
+
+
 @pytest.mark.asyncio
 async def test_agent_streams_tool_call_and_final_text() -> None:
     model = StreamingScriptedModel()
@@ -86,6 +124,29 @@ async def test_agent_streams_tool_call_and_final_text() -> None:
     assert events[1].text_delta == "结果"
     assert events[3].result is not None
     assert events[3].result.output == "结果"
+
+
+@pytest.mark.asyncio
+async def test_agent_streams_text_immediately_and_resets_tool_planning_text() -> None:
+    agent = Agent(
+        model=TextThenToolStreamingModel(),
+        tools=make_registry(),
+    )
+
+    events = [event async for event in agent.stream("执行")]
+
+    assert [event.type for event in events] == [
+        "text_delta",
+        "text_reset",
+        "step",
+        "text_delta",
+        "step",
+        "completed",
+    ]
+    assert events[0].text_delta == "正在思考"
+    assert events[3].text_delta == "最终答案"
+    assert events[-1].result is not None
+    assert events[-1].result.output == "最终答案"
 
 
 def make_registry(on_call: Any | None = None) -> ToolRegistry:
@@ -209,6 +270,170 @@ async def test_agent_stops_at_max_steps() -> None:
     assert result.status == "max_steps"
     assert len(result.steps) == 2
     assert "最大执行步数" in (result.termination_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_agent_rejects_tool_calls_above_step_budget() -> None:
+    model = ScriptedModel(
+        [
+            LLMResponse(
+                tool_calls=[
+                    ToolCall(id=f"call-{index}", name="echo", arguments={"value": index})
+                    for index in range(1, 5)
+                ]
+            )
+        ]
+    )
+    agent = Agent(
+        model=model,
+        tools=make_registry(),
+        config=AgentConfig(
+            max_tool_calls_per_step=3,
+            max_tool_budget_retries=0,
+        ),
+    )
+
+    result = await agent.run("执行过多工具")
+
+    assert result.status == "tool_budget_exceeded"
+    assert result.steps[0].tool_executions == []
+    assert "超过上限 3" in (result.termination_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_agent_replans_once_after_exceeding_tool_budget() -> None:
+    model = ScriptedModel(
+        [
+            LLMResponse(
+                tool_calls=[
+                    ToolCall(id=f"call-{index}", name="echo", arguments={"value": index})
+                    for index in range(1, 5)
+                ]
+            ),
+            LLMResponse(
+                tool_calls=[
+                    ToolCall(id="call-a", name="echo", arguments={"value": 1}),
+                    ToolCall(id="call-b", name="echo", arguments={"value": 2}),
+                ]
+            ),
+            LLMResponse(content="重新规划完成"),
+        ]
+    )
+    agent = Agent(
+        model=model,
+        tools=make_registry(),
+        config=AgentConfig(
+            max_tool_calls_per_step=3,
+            max_tool_budget_retries=1,
+        ),
+    )
+
+    result = await agent.run("重新规划")
+
+    assert result.status == "completed"
+    assert result.output == "重新规划完成"
+    assert len(result.steps[0].tool_executions) == 0
+    assert len(result.steps[1].tool_executions) == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_deduplicates_semantically_equivalent_sql() -> None:
+    execution_count = 0
+    registry = ToolRegistry()
+
+    @tool(
+        name="run_sql",
+        description=(
+            "做什么：执行只读 SQL。"
+            "何时使用：测试 SQL 去重。"
+            "参数 sql：查询语句。"
+            '示例：{"sql":"SELECT 1"}。'
+        ),
+    )
+    async def run_sql(sql: str) -> dict[str, str]:
+        nonlocal execution_count
+        del sql
+        execution_count += 1
+        return {"status": "ok"}
+
+    registry.register(run_sql)
+    model = ScriptedModel(
+        [
+            LLMResponse(
+                tool_calls=[ToolCall(id="call-1", name="run_sql", arguments={"sql": "SELECT 1"})]
+            ),
+            LLMResponse(
+                tool_calls=[
+                    ToolCall(
+                        id="call-2",
+                        name="run_sql",
+                        arguments={"sql": " select   1 "},
+                    )
+                ]
+            ),
+        ]
+    )
+    agent = Agent(model=model, tools=registry)
+
+    result = await agent.run("重复 SQL")
+
+    assert result.status == "loop_detected"
+    assert execution_count == 1
+    assert "重复的 SQL" in (result.termination_reason or "")
+
+
+def test_agent_compacts_older_tool_results_for_model_context() -> None:
+    model = ScriptedModel([])
+    agent = Agent(
+        model=model,
+        tools=make_registry(),
+        config=AgentConfig(
+            context_char_budget=4000,
+            keep_recent_tool_results=2,
+        ),
+    )
+    messages = [
+        ChatMessage(role="system", content="system"),
+        ChatMessage(role="user", content="question"),
+    ]
+    for index in range(5):
+        messages.extend(
+            [
+                ChatMessage(
+                    role="assistant",
+                    tool_calls=[
+                        ToolCall(
+                            id=f"call-{index}",
+                            name="run_sql",
+                            arguments={"sql": f"SELECT {index}"},
+                        )
+                    ],
+                ),
+                ChatMessage(
+                    role="tool",
+                    name="run_sql",
+                    tool_call_id=f"call-{index}",
+                    content=json.dumps(
+                        {
+                            "ok": True,
+                            "result": {
+                                "columns": ["value"],
+                                "rows": [{"value": index}] * 20,
+                                "row_count": 20,
+                                "truncated": False,
+                            },
+                            "error": None,
+                        }
+                    ),
+                ),
+            ]
+        )
+
+    compacted = agent._compacted_messages(messages)
+    tool_messages = [message for message in compacted if message.role == "tool"]
+
+    assert '"compacted":true' in (tool_messages[0].content or "")
+    assert '"compacted":true' not in (tool_messages[-1].content or "")
 
 
 @pytest.mark.asyncio

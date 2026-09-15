@@ -43,6 +43,7 @@ class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
         UniqueConstraint("conversation_id", "sequence", name="uq_messages_conversation_sequence"),
+        UniqueConstraint("request_id", name="uq_messages_request_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -61,6 +62,10 @@ class Message(Base):
     status: Mapped[str] = mapped_column(String(16), default="completed")
     tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     message_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    request_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

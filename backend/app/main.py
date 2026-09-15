@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
 from app.api.router import api_router
+from app.chat.events import RedisEventBroker
 from app.chat.runtime import build_chat_runtime
+from app.chat.tasks import ChatTaskManager
 from app.core.config import get_settings
 from app.datasets.factory import build_dataset_service
 from app.db.session import engine
@@ -31,6 +33,8 @@ logging.basicConfig(
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    app.state.chat_event_broker = RedisEventBroker(app.state.redis)
+    app.state.chat_task_manager = ChatTaskManager()
     app.state.analytics_engine = DuckDBAnalyticsEngine()
     app.state.tool_registry = build_initial_registry(app.state.analytics_engine)
     sandbox_client = SandboxClient()
@@ -68,6 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await app.state.chat_task_manager.shutdown()
         if mcp_client is not None:
             await mcp_client.close()
         if app.state.llm_router is not None:

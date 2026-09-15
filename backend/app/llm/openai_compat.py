@@ -202,7 +202,11 @@ class OpenAICompatibleProvider:
                 if attempt < self._max_retries:
                     await self._sleep(self._backoff(attempt))
                     continue
-            response.raise_for_status()
+            if response.is_error:
+                body = response.text[:2000]
+                raise LLMResponseError(
+                    f"Model provider returned HTTP {response.status_code}: {body}"
+                )
             try:
                 data = response.json()
             except ValueError as exc:

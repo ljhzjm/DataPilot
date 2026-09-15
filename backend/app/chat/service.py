@@ -32,6 +32,7 @@ class ConversationStore(Protocol):
         content: str | None,
         status: MessageStatus = "completed",
         tool_calls: list[dict[str, Any]] | None = None,
+        request_id: UUID | None = None,
     ) -> MessageView: ...
 
     async def complete_assistant_message(
@@ -49,6 +50,14 @@ class ConversationStore(Protocol):
         *,
         limit: int,
     ) -> list[ChatMessage]: ...
+
+    async def get_assistant_by_request_id(
+        self,
+        conversation_id: UUID,
+        request_id: UUID,
+    ) -> MessageView | None: ...
+
+    async def get_message(self, message_id: UUID) -> MessageView | None: ...
 
 
 class ConversationService:
@@ -104,6 +113,7 @@ class ConversationService:
         content: str | None,
         status: MessageStatus = "completed",
         tool_calls: list[dict[str, Any]] | None = None,
+        request_id: UUID | None = None,
     ) -> MessageView:
         async with self._session_factory() as session:
             conversation = await session.get(Conversation, conversation_id)
@@ -125,6 +135,7 @@ class ConversationService:
                 content=content,
                 status=status,
                 tool_calls=tool_calls or [],
+                request_id=request_id,
             )
             if role == "user" and conversation.title == "新会话" and content:
                 conversation.title = content.strip()[:40]
@@ -139,6 +150,7 @@ class ConversationService:
                 status=message.status,
                 tool_calls=message.tool_calls,
                 steps=[],
+                request_id=message.request_id,
                 created_at=message.created_at,
             )
 
@@ -208,6 +220,32 @@ class ConversationService:
             )
         return history
 
+    async def get_assistant_by_request_id(
+        self,
+        conversation_id: UUID,
+        request_id: UUID,
+    ) -> MessageView | None:
+        statement = (
+            select(Message)
+            .options(selectinload(Message.steps))
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.role == "assistant",
+                Message.request_id == request_id,
+            )
+        )
+        async with self._session_factory() as session:
+            message = (await session.execute(statement)).scalar_one_or_none()
+            return _message_view(message) if message is not None else None
+
+    async def get_message(self, message_id: UUID) -> MessageView | None:
+        statement = (
+            select(Message).options(selectinload(Message.steps)).where(Message.id == message_id)
+        )
+        async with self._session_factory() as session:
+            message = (await session.execute(statement)).scalar_one_or_none()
+            return _message_view(message) if message is not None else None
+
 
 def _conversation_detail(
     conversation: Conversation,
@@ -239,5 +277,6 @@ def _message_view(message: Message) -> MessageView:
             )
             for step in message.steps
         ],
+        request_id=message.request_id,
         created_at=message.created_at,
     )

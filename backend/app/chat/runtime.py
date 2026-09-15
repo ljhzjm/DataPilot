@@ -21,6 +21,7 @@ from app.tools.registry import ToolRegistry
 class RuntimeEventType(StrEnum):
     STEP = "step"
     TEXT = "text"
+    TEXT_RESET = "text_reset"
     DONE = "done"
     ERROR = "error"
 
@@ -62,19 +63,31 @@ class AgentChatRuntime:
                     type=RuntimeEventType.TEXT,
                     text=event.text_delta,
                 )
+            elif event.type == "text_reset":
+                yield RuntimeEvent(type=RuntimeEventType.TEXT_RESET)
             elif event.type == "step" and event.step is not None:
                 yield RuntimeEvent(
                     type=RuntimeEventType.STEP,
                     step=event.step,
                 )
             elif event.type == "completed" and event.result is not None:
-                yield RuntimeEvent(
-                    type=RuntimeEventType.DONE,
-                    data={
-                        "status": event.result.status,
-                        "termination_reason": event.result.termination_reason,
-                    },
-                )
+                if event.result.status == "completed":
+                    yield RuntimeEvent(
+                        type=RuntimeEventType.DONE,
+                        data={
+                            "status": event.result.status,
+                            "termination_reason": event.result.termination_reason,
+                        },
+                    )
+                else:
+                    yield RuntimeEvent(
+                        type=RuntimeEventType.ERROR,
+                        message=(
+                            event.result.termination_reason
+                            or event.result.output
+                            or f"Agent stopped with status: {event.result.status}"
+                        ),
+                    )
 
 
 class UnavailableChatRuntime:
@@ -210,6 +223,11 @@ def build_chat_runtime(
                 config=AgentConfig(
                     max_steps=settings.agent_max_steps,
                     max_total_tokens=settings.agent_max_total_tokens,
+                    max_tool_calls_per_step=settings.agent_max_tool_calls_per_step,
+                    max_tool_budget_retries=settings.agent_max_tool_budget_retries,
+                    max_parallel_tools=settings.agent_max_parallel_tools,
+                    context_char_budget=settings.agent_context_char_budget,
+                    keep_recent_tool_results=settings.agent_keep_recent_tool_results,
                     parallel_tool_calls=settings.agent_parallel_tools,
                     stream_model=True,
                 ),
@@ -260,6 +278,7 @@ def _agent_system_prompt() -> str:
         "再使用 mcp__query_company_data；禁止查询 information_schema。"
         "需要图表时使用 plot_chart，并传入结构化 Chart Spec。"
         "禁止生成写操作或访问未登记数据源。"
+        "每轮工具调用优先控制在 3 个以内，按关键维度分批分析。"
         "工具失败后必须根据错误修正参数或更换工具，"
         "禁止重复提交完全相同的工具调用。"
         "调用工具时不要输出面向用户的结论；获得足够信息后再简洁回答。"

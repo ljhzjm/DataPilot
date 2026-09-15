@@ -9,10 +9,16 @@ def encode_sse(event: RuntimeEvent, *, event_name: str | None = None) -> str:
     return encode_sse_data(event_type, event.model_dump(mode="json"))
 
 
-def encode_sse_data(event_name: str, payload: dict[str, Any]) -> str:
+def encode_sse_data(
+    event_name: str,
+    payload: dict[str, Any],
+    *,
+    event_id: str | None = None,
+) -> str:
     data = json.dumps(
         payload,
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return f"event: {event_name}\ndata: {data}\n\n"
+    id_line = f"id: {event_id}\n" if event_id else ""
+    return f"{id_line}event: {event_name}\ndata: {data}\n\n"

@@ -9,6 +9,7 @@ ChatRole = Literal["system", "user", "assistant", "tool"]
 AgentStatus = Literal[
     "completed",
     "max_steps",
+    "tool_budget_exceeded",
     "token_budget_exceeded",
     "loop_detected",
 ]
@@ -86,8 +87,13 @@ class AgentStep(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    max_steps: int = Field(default=8, ge=1)
-    max_total_tokens: int = Field(default=8192, ge=1)
+    max_steps: int = Field(default=10, ge=1)
+    max_total_tokens: int = Field(default=49_152, ge=1)
+    max_tool_calls_per_step: int = Field(default=3, ge=1)
+    max_tool_budget_retries: int = Field(default=1, ge=0, le=2)
+    max_parallel_tools: int = Field(default=3, ge=1)
+    context_char_budget: int = Field(default=24_000, ge=4000)
+    keep_recent_tool_results: int = Field(default=6, ge=1, le=20)
     parallel_tool_calls: bool = True
     stream_model: bool = True
     max_tool_result_chars: int = Field(default=16_000, ge=256)
@@ -103,7 +109,7 @@ class AgentRunResult(BaseModel):
 
 
 class AgentStreamEvent(BaseModel):
-    type: Literal["text_delta", "step", "completed"]
+    type: Literal["text_delta", "text_reset", "step", "completed"]
     text_delta: str | None = None
     step: AgentStep | None = None
     result: AgentRunResult | None = None
