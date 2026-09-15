@@ -62,6 +62,7 @@ docker compose --profile sandbox down
 - `run_python` 可按白名单表名把 Parquet 只读挂载到 `/data/<table_name>/`。
 - 沙箱产物写入隔离 Volume，仅回收 `.csv`、`.json`、`.png` 并持久化下载地址。
 - 确定性 Agent 评测覆盖工具编排、自纠错、循环检测和安全预算，可接入 CI。
+- 前端按需加载 Element Plus、ECharts 和抽屉组件，支持会话、CSV 和图表导出。
 - DuckDB CSV/Parquet 查询和 PostgreSQL 只读事务执行器。
 - MCP Client/Server 集成，支持启动重试、自动重连、工具热刷新、Ping 健康检查和统一注册。
 - 独立 Sandbox Runner 持有 Docker Socket，FastAPI 后端不再直接控制 Docker。
@@ -117,6 +118,15 @@ uv run python -m app.evaluation
 ```
 
 完整用例和扩展方式见 [Agent 评测文档](docs/agent-evaluation.md)。
+
+## 前端性能与导出
+
+- Element Plus 组件和样式按需引入，不再打包完整组件库。
+- `ChartView`、数据集抽屉和用量抽屉使用动态加载。
+- ECharts 只注册折线、柱状、面积、饼图和散点图所需模块。
+- 生产构建按 Vue、Markdown、图表和页面组件拆分 Chunk。
+- 会话可导出为 Markdown，包含消息、步骤、工具参数和结果。
+- 查询结果可导出为带 UTF-8 BOM 的 CSV，图表可导出为 2 倍像素 PNG。
 
 ## SSE 可靠性
 

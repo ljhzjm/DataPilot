@@ -91,6 +91,7 @@ watch(
 .message-list {
   min-height: 0;
   flex: 1;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 24px;
   background:
@@ -180,6 +181,7 @@ watch(
 }
 
 .message-body {
+  min-width: 0;
   max-width: min(660px, 90%);
   padding: 11px 14px;
   border: 1px solid var(--border-color);
@@ -188,6 +190,7 @@ watch(
 }
 
 .message-content {
+  min-width: 0;
   margin: 0;
   color: var(--text-color);
   font-size: 14px;
@@ -200,11 +203,18 @@ watch(
   margin: 0 0 10px;
 }
 
+.markdown-content {
+  min-width: 0;
+}
+
 .markdown-content :deep(p:last-child) {
   margin-bottom: 0;
 }
 
 .markdown-content :deep(table) {
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
   width: 100%;
   margin: 10px 0;
   border-collapse: collapse;
@@ -216,6 +226,7 @@ watch(
   padding: 7px 9px;
   border: 1px solid var(--border-color);
   text-align: left;
+  white-space: nowrap;
 }
 
 .markdown-content :deep(th) {

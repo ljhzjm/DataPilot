@@ -3,26 +3,52 @@ Vue 概念：`onMounted` 在组件挂载后初始化 ECharts，`watch` 监听 Ch
 变化并重新渲染，`onBeforeUnmount` 清理实例和 ResizeObserver。
 -->
 <script setup lang="ts">
-import * as echarts from 'echarts'
-import type { EChartsOption } from 'echarts'
+import { Download } from '@lucide/vue'
+import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
+import {
+  GridComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components'
+import { init, use } from 'echarts/core'
+import type { ECharts, EChartsCoreOption } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { ChartSpec } from '../types/chat'
+import {
+  downloadDataUrl,
+  exportTimestamp,
+  safeExportName,
+} from '../utils/export'
 
 const props = defineProps<{
   spec: ChartSpec
 }>()
 
+use([
+  BarChart,
+  LineChart,
+  PieChart,
+  ScatterChart,
+  GridComponent,
+  TitleComponent,
+  TooltipComponent,
+  CanvasRenderer,
+])
+
 const chartElement = ref<HTMLDivElement | null>(null)
-let chart: echarts.ECharts | null = null
+const canExport = ref(false)
+let chart: ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   if (!chartElement.value) {
     return
   }
-  chart = echarts.init(chartElement.value, undefined, { renderer: 'canvas' })
+  chart = init(chartElement.value, undefined, { renderer: 'canvas' })
   renderChart()
+  canExport.value = true
   resizeObserver = new ResizeObserver(() => chart?.resize())
   resizeObserver.observe(chartElement.value)
 })
@@ -37,14 +63,30 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   chart?.dispose()
   chart = null
+  canExport.value = false
 })
+
+function exportPng(): void {
+  if (!chart) {
+    return
+  }
+  const dataUrl = chart.getDataURL({
+    type: 'png',
+    pixelRatio: 2,
+    backgroundColor: '#ffffff',
+  })
+  downloadDataUrl(
+    dataUrl,
+    `${safeExportName(props.spec.title, 'datapilot-chart')}-${exportTimestamp()}.png`,
+  )
+}
 
 function renderChart(): void {
   if (!chart) {
     return
   }
   const { spec } = props
-  const common: EChartsOption = {
+  const common: EChartsCoreOption = {
     title: {
       text: spec.title,
       left: 8,
@@ -70,7 +112,7 @@ function renderChart(): void {
             })),
           },
         ],
-      } as EChartsOption,
+      } as EChartsCoreOption,
       true,
     )
     return
@@ -98,17 +140,40 @@ function renderChart(): void {
         splitLine: { lineStyle: { color: '#e2e8f0' } },
       },
       series,
-    } as EChartsOption,
+    } as EChartsCoreOption,
     true,
   )
 }
 </script>
 
 <template>
-  <div ref="chartElement" class="chart-view" role="img" :aria-label="spec.title"></div>
+  <div class="chart-shell">
+    <div class="chart-toolbar">
+      <el-tooltip content="导出 PNG" placement="left">
+        <el-button
+          text
+          :icon="Download"
+          :disabled="!canExport"
+          aria-label="导出 PNG"
+          @click="exportPng"
+        />
+      </el-tooltip>
+    </div>
+    <div ref="chartElement" class="chart-view" role="img" :aria-label="spec.title"></div>
+  </div>
 </template>
 
 <style scoped>
+.chart-shell {
+  display: grid;
+  gap: 4px;
+}
+
+.chart-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .chart-view {
   width: 100%;
   height: 300px;

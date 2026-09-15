@@ -4,11 +4,12 @@ Vue 概念：`computed` 根据 result 的运行时结构判断渲染分支。
 -->
 <script setup lang="ts">
 import { Download, FileText } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 
 import type { ArtifactView, ChartArtifact } from '../types/chat'
-import ChartView from './ChartView.vue'
 import DataGrid from './DataGrid.vue'
+
+const ChartView = defineAsyncComponent(() => import('./ChartView.vue'))
 
 const props = defineProps<{
   result: unknown

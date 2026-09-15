@@ -7,24 +7,40 @@ import {
   Archive,
   ArchiveRestore,
   Database,
+  Download,
   History,
   Plus,
   Gauge,
   Trash2,
 } from '@lucide/vue'
-import { ElMessageBox } from 'element-plus'
-import { ref } from 'vue'
+import 'element-plus/es/components/message-box/style/css'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import { computed, defineAsyncComponent, ref } from 'vue'
 
 import { useChatStore } from '../stores/chat'
-import DatasetDrawer from './DatasetDrawer.vue'
+import {
+  createConversationMarkdown,
+  downloadTextFile,
+  exportTimestamp,
+  safeExportName,
+} from '../utils/export'
 import MessageComposer from './MessageComposer.vue'
 import MessageList from './MessageList.vue'
-import ObservabilityDrawer from './ObservabilityDrawer.vue'
 
 const store = useChatStore()
+const DatasetDrawer = defineAsyncComponent(() => import('./DatasetDrawer.vue'))
+const ObservabilityDrawer = defineAsyncComponent(
+  () => import('./ObservabilityDrawer.vue'),
+)
 const historyOpen = ref(false)
 const datasetOpen = ref(false)
 const observabilityOpen = ref(false)
+const currentTitle = computed(
+  () =>
+    store.conversations.find(
+      (conversation) => conversation.id === store.currentConversationId,
+    )?.title || 'DataPilot 会话',
+)
 
 async function chooseConversation(conversationId: string): Promise<void> {
   historyOpen.value = false
@@ -47,6 +63,15 @@ async function deleteConversation(conversationId: string): Promise<void> {
     cancelButtonText: '取消',
   })
   await store.removeConversation(conversationId)
+}
+
+function exportConversation(): void {
+  const markdown = createConversationMarkdown(currentTitle.value, store.messages)
+  downloadTextFile(
+    markdown,
+    `${safeExportName(currentTitle.value, 'datapilot-conversation')}-${exportTimestamp()}.md`,
+    'text/markdown;charset=utf-8',
+  )
 }
 </script>
 
@@ -72,6 +97,15 @@ async function deleteConversation(conversationId: string): Promise<void> {
             circle
             aria-label="模型用量"
             @click="observabilityOpen = true"
+          />
+        </el-tooltip>
+        <el-tooltip content="导出会话" placement="bottom">
+          <el-button
+            :icon="Download"
+            circle
+            :disabled="!store.messages.length || store.isStreaming"
+            aria-label="导出会话"
+            @click="exportConversation"
           />
         </el-tooltip>
         <el-tooltip content="历史会话" placement="bottom">
@@ -190,6 +224,7 @@ async function deleteConversation(conversationId: string): Promise<void> {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--surface-color);
 }
 
@@ -281,5 +316,43 @@ async function deleteConversation(conversationId: string): Promise<void> {
 .history-more {
   width: 100%;
   margin-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .panel-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .panel-header > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .panel-header strong {
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .panel-kicker {
+    display: none;
+  }
+
+  .panel-actions {
+    order: 2;
+    flex-basis: 100%;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    gap: 1px;
+  }
+
+  .panel-actions :deep(.el-button) {
+    width: 28px;
+    height: 28px;
+    margin-left: 0;
+  }
 }
 </style>

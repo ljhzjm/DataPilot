@@ -95,6 +95,12 @@ body {
 
   .workspace-grid {
     grid-template-columns: 1fr;
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .workspace-grid > * {
+    min-width: 0;
   }
 
   .workspace-grid > :first-child {
