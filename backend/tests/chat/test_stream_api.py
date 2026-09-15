@@ -79,6 +79,7 @@ class FakeStore:
         status: MessageStatus = "completed",
         tool_calls: list[dict[str, object]] | None = None,
         request_id: UUID | None = None,
+        trace_id: UUID | None = None,
     ) -> MessageView:
         conversation = self.conversations[conversation_id]
         message = MessageView(
@@ -89,6 +90,7 @@ class FakeStore:
             tool_calls=tool_calls or [],
             steps=[],
             request_id=request_id,
+            trace_id=trace_id,
             created_at=datetime.now(UTC),
         )
         conversation.messages.append(message)
@@ -164,8 +166,9 @@ class FakeRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        del history
+        del history, trace_id
         yield RuntimeEvent(
             type=RuntimeEventType.STEP,
             step=AgentStep(

@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Sequence
+from uuid import UUID
 
 import pytest
 
@@ -18,8 +19,9 @@ class NonCompletedAgent:
         *,
         history: Sequence[ChatMessage],
         system_prompt: str,
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[AgentStreamEvent]:
-        del question, history, system_prompt
+        del question, history, system_prompt, trace_id
         yield AgentStreamEvent(
             type="completed",
             result=AgentRunResult(

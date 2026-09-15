@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
+from uuid import UUID
 
 import httpx
 
@@ -60,7 +61,7 @@ class OpenAICompatibleProvider:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> LLMResponse:
         del task, trace_id
@@ -96,7 +97,7 @@ class OpenAICompatibleProvider:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> AsyncIterator[StreamEvent]:
         del task, trace_id
@@ -150,7 +151,7 @@ class OpenAICompatibleProvider:
         *,
         texts: Sequence[str],
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "embedding",
     ) -> EmbeddingResult:
         del task, trace_id

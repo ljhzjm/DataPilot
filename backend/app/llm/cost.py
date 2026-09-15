@@ -2,7 +2,7 @@ import logging
 from collections.abc import AsyncIterator, Sequence
 from time import perf_counter
 from typing import Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 
 class UsageRecord(BaseModel):
     request_id: str
-    trace_id: str | None = None
+    trace_id: UUID | None = None
     task: str
     provider: str
     model: str
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
+    estimated_cost_usd: float = Field(default=0, ge=0)
     latency_ms: float = Field(ge=0)
     success: bool
     error_type: str | None = None
@@ -55,10 +56,14 @@ class UsageTrackingProvider:
         *,
         provider_name: str,
         recorder: UsageRecorder | None = None,
+        input_price_per_million: float = 0,
+        output_price_per_million: float = 0,
     ) -> None:
         self._provider = provider
         self._provider_name = provider_name
         self._recorder = recorder or LoggingUsageRecorder()
+        self._input_price_per_million = input_price_per_million
+        self._output_price_per_million = output_price_per_million
 
     async def close(self) -> None:
         await self._provider.close()
@@ -69,7 +74,7 @@ class UsageTrackingProvider:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> LLMResponse:
         started = perf_counter()
@@ -107,7 +112,7 @@ class UsageTrackingProvider:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> AsyncIterator[StreamEvent]:
         started = perf_counter()
@@ -144,7 +149,7 @@ class UsageTrackingProvider:
         *,
         texts: Sequence[str],
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "embedding",
     ) -> EmbeddingResult:
         started = perf_counter()
@@ -180,23 +185,32 @@ class UsageTrackingProvider:
         *,
         task: str,
         model: str | None,
-        trace_id: str | None,
+        trace_id: UUID | None,
         usage: TokenUsage,
         started: float,
         success: bool,
         error_type: str | None = None,
     ) -> None:
-        await self._recorder.record(
-            UsageRecord(
-                request_id=uuid4().hex,
-                trace_id=trace_id,
-                task=task,
-                provider=self._provider_name,
-                model=model or "default",
-                input_tokens=usage.input_tokens,
-                output_tokens=usage.output_tokens,
-                latency_ms=(perf_counter() - started) * 1000,
-                success=success,
-                error_type=error_type,
-            )
+        record = UsageRecord(
+            request_id=uuid4().hex,
+            trace_id=trace_id,
+            task=task,
+            provider=self._provider_name,
+            model=model or "default",
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            estimated_cost_usd=self._estimate_cost(usage),
+            latency_ms=(perf_counter() - started) * 1000,
+            success=success,
+            error_type=error_type,
         )
+        try:
+            await self._recorder.record(record)
+        except Exception:
+            logger.exception("Failed to persist LLM usage record request_id=%s", record.request_id)
+
+    def _estimate_cost(self, usage: TokenUsage) -> float:
+        return (
+            usage.input_tokens * self._input_price_per_million
+            + usage.output_tokens * self._output_price_per_million
+        ) / 1_000_000

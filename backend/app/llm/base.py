@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator, Sequence
 from typing import Literal, Protocol
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -35,7 +36,7 @@ class LLMProvider(Protocol):
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> LLMResponse: ...
 
@@ -45,7 +46,7 @@ class LLMProvider(Protocol):
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> AsyncIterator[StreamEvent]: ...
 
@@ -54,7 +55,7 @@ class LLMProvider(Protocol):
         *,
         texts: Sequence[str],
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "embedding",
     ) -> EmbeddingResult: ...
 

@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Sequence
+from uuid import UUID
 
 from app.agent.models import ChatMessage, LLMResponse
 from app.llm.base import EmbeddingResult, LLMProvider, StreamEvent
@@ -29,7 +30,7 @@ class ModelRouter:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         task: str = "default",
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
     ) -> LLMResponse:
         return await self._provider.chat(
             messages=messages,
@@ -45,7 +46,7 @@ class ModelRouter:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         task: str = "default",
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[StreamEvent]:
         return self._provider.chat_stream(
             messages=messages,
@@ -60,7 +61,7 @@ class ModelRouter:
         *,
         texts: Sequence[str],
         task: str = "embedding",
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
     ) -> EmbeddingResult:
         return await self._provider.embed(
             texts=texts,

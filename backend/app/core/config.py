@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
     llm_retry_base_delay_seconds: float = 0.5
     llm_include_usage_in_stream: bool = True
+    llm_input_price_per_million: float = 0
+    llm_output_price_per_million: float = 0
     dataset_upload_dir: Path = Path("data/uploads")
     dataset_max_upload_bytes: int = 20 * 1024 * 1024
     dataset_max_rows: int = 500_000

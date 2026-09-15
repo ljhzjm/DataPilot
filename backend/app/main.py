@@ -13,9 +13,10 @@ from app.chat.runtime import build_chat_runtime
 from app.chat.tasks import ChatTaskManager
 from app.core.config import get_settings
 from app.datasets.factory import build_dataset_service
-from app.db.session import engine
+from app.db.session import AsyncSessionLocal, engine
 from app.llm.factory import build_model_router
 from app.mcp.client import MCPClient
+from app.observability.repository import DatabaseUsageRecorder
 from app.sandbox.client import SandboxClient
 from app.sandbox.duckdb_executor import DuckDBReadOnlyExecutor
 from app.sandbox.service import SandboxService
@@ -63,7 +64,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await build_dataset_service(app.state.analytics_engine).restore_engine()
         except Exception:
             logger.exception("Dataset restore failed")
-    app.state.llm_router = build_model_router(settings)
+    usage_recorder = DatabaseUsageRecorder(AsyncSessionLocal)
+    app.state.usage_recorder = usage_recorder
+    app.state.llm_router = build_model_router(
+        settings,
+        recorder=usage_recorder,
+    )
     app.state.chat_runtime = build_chat_runtime(
         settings,
         model_router=app.state.llm_router,

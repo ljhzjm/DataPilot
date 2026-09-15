@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Sequence
+from uuid import UUID
 
 import pytest
 
@@ -19,7 +20,7 @@ class FakeProvider:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> LLMResponse:
         del messages, tools, trace_id, task
@@ -35,7 +36,7 @@ class FakeProvider:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition] = (),
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "default",
     ) -> AsyncIterator[StreamEvent]:
         del messages, tools, trace_id, task
@@ -50,7 +51,7 @@ class FakeProvider:
         *,
         texts: Sequence[str],
         model: str | None = None,
-        trace_id: str | None = None,
+        trace_id: UUID | None = None,
         task: str = "embedding",
     ) -> EmbeddingResult:
         del texts, trace_id, task
@@ -81,6 +82,8 @@ async def test_router_uses_task_specific_model_and_records_cost() -> None:
         provider,
         provider_name="test-provider",
         recorder=recorder,
+        input_price_per_million=1,
+        output_price_per_million=2,
     )
     router = ModelRouter(
         provider=tracked,
@@ -91,7 +94,7 @@ async def test_router_uses_task_specific_model_and_records_cost() -> None:
     response = await router.chat(
         messages=[ChatMessage(role="user", content="统计销售额")],
         task="sql",
-        trace_id="trace-1",
+        trace_id=UUID("00000000-0000-0000-0000-000000000001"),
     )
 
     assert response.content == "ok"
@@ -102,9 +105,10 @@ async def test_router_uses_task_specific_model_and_records_cost() -> None:
     record = recorder.records[0]
     assert record.model == "sql-model"
     assert record.task == "sql"
-    assert record.trace_id == "trace-1"
+    assert record.trace_id == UUID("00000000-0000-0000-0000-000000000001")
     assert record.input_tokens == 7
     assert record.output_tokens == 2
+    assert record.estimated_cost_usd == pytest.approx(0.000011)
     assert record.success is True
 
 

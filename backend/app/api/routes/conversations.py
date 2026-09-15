@@ -79,6 +79,7 @@ async def stream_message(
 
     settings = get_settings()
     request_id = payload.client_request_id or uuid4()
+    trace_id = uuid4()
     assistant_message = await store.get_assistant_by_request_id(
         conversation_id,
         request_id,
@@ -100,6 +101,7 @@ async def stream_message(
             content="",
             status="streaming",
             request_id=request_id,
+            trace_id=trace_id,
         )
         worker = ChatWorker(store=store, runtime=runtime, broker=broker)
         task_manager.start(
@@ -108,6 +110,7 @@ async def stream_message(
                 assistant_message_id=assistant_message.id,
                 conversation_id=conversation_id,
                 request_id=request_id,
+                trace_id=trace_id,
                 question=payload.content,
                 history=history,
             ),

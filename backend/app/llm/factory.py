@@ -1,10 +1,14 @@
 from app.core.config import Settings
-from app.llm.cost import UsageTrackingProvider
+from app.llm.cost import UsageRecorder, UsageTrackingProvider
 from app.llm.openai_compat import OpenAICompatibleProvider
 from app.llm.router import ModelRouter
 
 
-def build_model_router(settings: Settings) -> ModelRouter | None:
+def build_model_router(
+    settings: Settings,
+    *,
+    recorder: UsageRecorder | None = None,
+) -> ModelRouter | None:
     if settings.llm_api_key is None or not settings.llm_api_key.get_secret_value():
         return None
 
@@ -20,6 +24,9 @@ def build_model_router(settings: Settings) -> ModelRouter | None:
     tracked_provider = UsageTrackingProvider(
         provider,
         provider_name=settings.llm_provider_name,
+        recorder=recorder,
+        input_price_per_million=settings.llm_input_price_per_million,
+        output_price_per_million=settings.llm_output_price_per_million,
     )
     return ModelRouter(
         provider=tracked_provider,

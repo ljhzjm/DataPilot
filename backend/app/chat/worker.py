@@ -27,6 +27,7 @@ class ChatWorker:
         assistant_message_id: UUID,
         conversation_id: UUID,
         request_id: UUID,
+        trace_id: UUID,
         question: str,
         history: Sequence[ChatMessage],
     ) -> None:
@@ -42,11 +43,16 @@ class ChatWorker:
                 "conversation_id": str(conversation_id),
                 "assistant_message_id": str(assistant_message_id),
                 "request_id": str(request_id),
+                "trace_id": str(trace_id),
             },
         )
 
         try:
-            async for event in self._runtime.stream(question=question, history=history):
+            async for event in self._runtime.stream(
+                question=question,
+                history=history,
+                trace_id=trace_id,
+            ):
                 if event.type is RuntimeEventType.STEP and event.step is not None:
                     steps.append(event.step)
                     await self._broker.publish(

@@ -23,6 +23,7 @@ class MessageView(BaseModel):
     tool_calls: list[dict[str, object]] = Field(default_factory=list)
     steps: list[AgentStep] = Field(default_factory=list)
     request_id: UUID | None = None
+    trace_id: UUID | None = None
     created_at: datetime
 
 

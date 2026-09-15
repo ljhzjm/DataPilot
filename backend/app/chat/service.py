@@ -41,6 +41,7 @@ class ConversationStore(Protocol):
         status: MessageStatus = "completed",
         tool_calls: list[dict[str, Any]] | None = None,
         request_id: UUID | None = None,
+        trace_id: UUID | None = None,
     ) -> MessageView: ...
 
     async def complete_assistant_message(
@@ -165,6 +166,7 @@ class ConversationService:
         status: MessageStatus = "completed",
         tool_calls: list[dict[str, Any]] | None = None,
         request_id: UUID | None = None,
+        trace_id: UUID | None = None,
     ) -> MessageView:
         async with self._session_factory() as session:
             conversation = await session.get(Conversation, conversation_id)
@@ -190,6 +192,7 @@ class ConversationService:
                 status=status,
                 tool_calls=tool_calls or [],
                 request_id=request_id,
+                trace_id=trace_id,
             )
             if role == "user" and conversation.title == "新会话" and content:
                 conversation.title = content.strip()[:40]
@@ -204,6 +207,7 @@ class ConversationService:
                 tool_calls=message.tool_calls,
                 steps=[],
                 request_id=message.request_id,
+                trace_id=message.trace_id,
                 created_at=message.created_at,
             )
 
@@ -358,6 +362,7 @@ def _message_view(message: Message) -> MessageView:
             for step in message.steps
         ],
         request_id=message.request_id,
+        trace_id=message.trace_id,
         created_at=message.created_at,
     )
 

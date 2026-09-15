@@ -9,6 +9,7 @@ import {
   Database,
   History,
   Plus,
+  Gauge,
   Trash2,
 } from '@lucide/vue'
 import { ElMessageBox } from 'element-plus'
@@ -18,10 +19,12 @@ import { useChatStore } from '../stores/chat'
 import DatasetDrawer from './DatasetDrawer.vue'
 import MessageComposer from './MessageComposer.vue'
 import MessageList from './MessageList.vue'
+import ObservabilityDrawer from './ObservabilityDrawer.vue'
 
 const store = useChatStore()
 const historyOpen = ref(false)
 const datasetOpen = ref(false)
+const observabilityOpen = ref(false)
 
 async function chooseConversation(conversationId: string): Promise<void> {
   historyOpen.value = false
@@ -61,6 +64,14 @@ async function deleteConversation(conversationId: string): Promise<void> {
             circle
             aria-label="数据表"
             @click="datasetOpen = true"
+          />
+        </el-tooltip>
+        <el-tooltip content="模型用量" placement="bottom">
+          <el-button
+            :icon="Gauge"
+            circle
+            aria-label="模型用量"
+            @click="observabilityOpen = true"
           />
         </el-tooltip>
         <el-tooltip content="历史会话" placement="bottom">
@@ -169,6 +180,7 @@ async function deleteConversation(conversationId: string): Promise<void> {
       </el-button>
     </el-drawer>
     <DatasetDrawer v-model="datasetOpen" />
+    <ObservabilityDrawer v-model="observabilityOpen" />
   </section>
 </template>
 

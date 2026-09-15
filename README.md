@@ -101,6 +101,25 @@ PostgreSQL 元数据恢复已经登记的 DuckDB 表。
 - `client_request_id` 保证重复提交不会创建重复消息或重复模型调用。
 - 停止按钮调用独立 abort 接口，后台任务会持久化为 `aborted`。
 
+## 可观测性
+
+每次后台 Agent 任务生成独立 `trace_id`。模型调用结果写入 PostgreSQL
+`usage_records`，同时关联 assistant 消息和工具执行步骤。
+
+- `GET /api/observability/summary`：调用次数、Token、成本、平均延迟和错误数
+- `GET /api/observability/usage`：分页模型调用明细
+- `GET /api/observability/traces/{trace_id}`：消息、步骤、工具耗时和模型调用
+
+模型价格可在 `.env` 中配置：
+
+```dotenv
+LLM_INPUT_PRICE_PER_MILLION=0
+LLM_OUTPUT_PRICE_PER_MILLION=0
+```
+
+价格单位是每 100 万 Token 的美元价格。设置为 `0` 时仍记录 Token 和延迟，
+但估算成本为 `0`。
+
 ## MCP 架构
 
 DataPilot 通过 stdio JSON-RPC 连接独立 MCP Server，并把 MCP 工具转换成统一的

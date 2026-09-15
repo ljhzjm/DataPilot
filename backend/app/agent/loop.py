@@ -54,11 +54,13 @@ class Agent:
         *,
         system_prompt: str | None = None,
         history: Sequence[ChatMessage] = (),
+        trace_id: UUID | None = None,
     ) -> AgentRunResult:
         async for event in self.stream(
             user_input,
             system_prompt=system_prompt,
             history=history,
+            trace_id=trace_id,
         ):
             if event.type == "completed" and event.result is not None:
                 return event.result
@@ -70,6 +72,7 @@ class Agent:
         *,
         system_prompt: str | None = None,
         history: Sequence[ChatMessage] = (),
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[AgentStreamEvent]:
         messages: list[ChatMessage] = list(history)
         if system_prompt:
@@ -87,6 +90,7 @@ class Agent:
             async for item in self._stream_model_response(
                 messages,
                 tool_definitions,
+                trace_id=trace_id,
             ):
                 if isinstance(item, AgentStreamEvent):
                     yield item
@@ -268,13 +272,18 @@ class Agent:
         self,
         messages: Sequence[ChatMessage],
         tool_definitions: Sequence[ToolDefinition],
+        *,
+        trace_id: UUID | None,
     ) -> AsyncIterator[AgentStreamEvent | _CompletedModelResponse]:
         model_messages = self._compacted_messages(messages)
         if not self._config.stream_model or not hasattr(self._model, "chat_stream"):
-            response = await self._model.chat(
-                messages=model_messages,
-                tools=tool_definitions,
-            )
+            request_kwargs: dict[str, Any] = {
+                "messages": model_messages,
+                "tools": tool_definitions,
+            }
+            if trace_id is not None:
+                request_kwargs["trace_id"] = trace_id
+            response = await self._model.chat(**request_kwargs)
             if response.content:
                 yield AgentStreamEvent(
                     type="text_delta",
@@ -291,10 +300,13 @@ class Agent:
         finish_reason: str | None = None
 
         streaming_model = cast(StreamingChatModel, self._model)
-        stream = streaming_model.chat_stream(
-            messages=model_messages,
-            tools=tool_definitions,
-        )
+        request_kwargs = {
+            "messages": model_messages,
+            "tools": tool_definitions,
+        }
+        if trace_id is not None:
+            request_kwargs["trace_id"] = trace_id
+        stream = streaming_model.chat_stream(**request_kwargs)
         async for event in stream:
             if event.type == "text_delta" and event.content_delta:
                 text_parts.append(event.content_delta)

@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from enum import StrEnum
 from typing import Any, Protocol
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +41,7 @@ class ChatRuntime(Protocol):
         *,
         question: str,
         history: Sequence[ChatMessage],
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]: ...
 
 
@@ -52,11 +54,13 @@ class AgentChatRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
         async for event in self._agent.stream(
             question,
             history=history,
             system_prompt=_agent_system_prompt(),
+            trace_id=trace_id,
         ):
             if event.type == "text_delta" and event.text_delta:
                 yield RuntimeEvent(
@@ -96,8 +100,9 @@ class UnavailableChatRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        del question, history
+        del question, history, trace_id
         yield RuntimeEvent(
             type=RuntimeEventType.ERROR,
             message="真实模型运行时尚未配置。",
@@ -112,8 +117,9 @@ class PreviewChatRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        del history
+        del history, trace_id
         await asyncio.sleep(0.15)
         yield RuntimeEvent(
             type=RuntimeEventType.STEP,
