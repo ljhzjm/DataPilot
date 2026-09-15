@@ -77,12 +77,14 @@ services:
       DATASET_MAX_UPLOAD_BYTES: "${DATASET_MAX_UPLOAD_BYTES:-20971520}"
       DATASET_MAX_ROWS: "${DATASET_MAX_ROWS:-500000}"
       DATASET_MAX_COLUMNS: "${DATASET_MAX_COLUMNS:-500}"
+      SANDBOX_RUNNER_URL: "http://sandbox-runner:8100"
+      SANDBOX_RUNNER_TOKEN: "${SANDBOX_RUNNER_TOKEN:-datapilot-dev-sandbox-token}"
+      SANDBOX_RUNNER_TIMEOUT_SECONDS: "12"
       UV_PROJECT_ENVIRONMENT: /opt/venv
     ports:
       - "127.0.0.1:${BACKEND_PORT:-18000}:8000"
     volumes:
       - ./backend:/app
-      - /var/run/docker.sock:/var/run/docker.sock
       - dataset_data:/app/data/uploads
     depends_on:
       postgres:
@@ -91,6 +93,11 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      sandbox-runner:
+        condition: service_healthy
+    networks:
+      - default
+      - sandbox_control
     healthcheck:
       test:
         [
@@ -116,6 +123,58 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
+
+  sandbox-runner:
+    image: datapilot-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command:
+      [
+        "uvicorn",
+        "app.sandbox.runner_service:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8100",
+      ]
+    environment:
+      SANDBOX_IMAGE: "datapilot/sandbox:dev"
+      SANDBOX_TIMEOUT_SECONDS: "10"
+      SANDBOX_MEMORY_LIMIT: "512m"
+      SANDBOX_PIDS_LIMIT: "64"
+      SANDBOX_CPU_LIMIT: "1.0"
+      SANDBOX_OUTPUT_LIMIT_BYTES: "8192"
+      SANDBOX_MAX_CODE_LINES: "300"
+      SANDBOX_MAX_CODE_CHARS: "80000"
+      SANDBOX_MAX_INPUT_BYTES: "48000"
+      SANDBOX_RUNNER_TOKEN: "${SANDBOX_RUNNER_TOKEN:-datapilot-dev-sandbox-token}"
+      PYTHONDONTWRITEBYTECODE: "1"
+      HOME: "/tmp"
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - sandbox_control
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health/live')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
   frontend:
     build:
@@ -166,3 +225,7 @@ volumes:
   postgres_data:
   redis_data:
   dataset_data:
+
+networks:
+  sandbox_control:
+    internal: true

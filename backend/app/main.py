@@ -14,6 +14,9 @@ from app.datasets.factory import build_dataset_service
 from app.db.session import engine
 from app.llm.factory import build_model_router
 from app.mcp.client import MCPClient
+from app.sandbox.client import SandboxClient
+from app.sandbox.duckdb_executor import DuckDBReadOnlyExecutor
+from app.sandbox.service import SandboxService
 from app.tools.duckdb_engine import DuckDBAnalyticsEngine
 from app.tools.initial import build_initial_registry
 
@@ -30,6 +33,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
     app.state.analytics_engine = DuckDBAnalyticsEngine()
     app.state.tool_registry = build_initial_registry(app.state.analytics_engine)
+    sandbox_client = SandboxClient()
+    app.state.sandbox_client = sandbox_client
+    app.state.sandbox_service = SandboxService(
+        python_executor=sandbox_client,
+        duckdb_executor=DuckDBReadOnlyExecutor(app.state.analytics_engine),
+    )
     mcp_client: MCPClient | None = None
     if settings.mcp_enabled:
         mcp_client = MCPClient(
@@ -63,6 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await mcp_client.close()
         if app.state.llm_router is not None:
             await app.state.llm_router.close()
+        await sandbox_client.close()
         app.state.analytics_engine.close()
         await app.state.redis.aclose()
         await engine.dispose()

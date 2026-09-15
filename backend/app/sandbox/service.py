@@ -1,14 +1,26 @@
+from collections.abc import Mapping
+from typing import Protocol
+
 from app.sandbox.duckdb_executor import DuckDBReadOnlyExecutor
 from app.sandbox.models import ExecutionResult, SandboxExecutionKind, SandboxRequest
 from app.sandbox.postgres_executor import PostgresReadOnlyExecutor
-from app.sandbox.python_executor import DockerPythonExecutor
+
+
+class PythonExecutor(Protocol):
+    async def execute(
+        self,
+        code: str,
+        *,
+        input_files: Mapping[str, str | bytes] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> ExecutionResult: ...
 
 
 class SandboxService:
     def __init__(
         self,
         *,
-        python_executor: DockerPythonExecutor | None = None,
+        python_executor: PythonExecutor | None = None,
         duckdb_executor: DuckDBReadOnlyExecutor | None = None,
         postgres_executor: PostgresReadOnlyExecutor | None = None,
     ) -> None:

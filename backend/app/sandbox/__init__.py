@@ -1,5 +1,6 @@
 """Isolated execution for untrusted generated code and read-only SQL."""
 
+from app.sandbox.client import SandboxClient, SandboxRunnerError
 from app.sandbox.duckdb_executor import DuckDBReadOnlyExecutor
 from app.sandbox.models import (
     ExecutionResult,
@@ -16,6 +17,8 @@ __all__ = [
     "ExecutionResult",
     "PostgresReadOnlyExecutor",
     "SandboxExecutionKind",
+    "SandboxClient",
+    "SandboxRunnerError",
     "SandboxRequest",
     "SandboxService",
     "SandboxUnavailableError",

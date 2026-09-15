@@ -18,6 +18,25 @@
 
 具体限制由后端沙箱执行层在启动临时容器时强制执行。`docker-compose.yml` 中的 sandbox 服务用于构建和验证同一镜像，不作为共享代码执行池。
 
+## 控制平面
+
+```mermaid
+flowchart LR
+    API[FastAPI Backend] -->|internal HTTP + token| Runner[Sandbox Runner]
+    Runner -->|Docker API| Docker[Docker Engine]
+    Docker --> Ephemeral[一次性 Python 容器]
+```
+
+FastAPI 后端不再挂载 `/var/run/docker.sock`。只有独立的 `sandbox-runner`
+服务拥有 Docker Socket，并且只暴露固定接口：
+
+- `/health/live`
+- `/v1/execute/python`
+
+请求不能指定镜像、挂载、网络、环境变量、CPU 或内存参数。Runner 根据自身配置
+创建一次性容器。后端和 Runner 使用共享令牌验证内部请求，Runner 位于
+`internal: true` 的独立网络，无法访问 PostgreSQL、Redis 或外网。
+
 ## 执行方式
 
 每次 Python 执行都会：

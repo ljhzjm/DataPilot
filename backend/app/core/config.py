@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     sandbox_max_code_lines: int = 300
     sandbox_max_code_chars: int = 80_000
     sandbox_max_input_bytes: int = 48_000
+    sandbox_runner_url: str = "http://localhost:18100"
+    sandbox_runner_token: SecretStr | None = None
+    sandbox_runner_timeout_seconds: float = 12
     postgres_query_timeout_seconds: int = 10
     postgres_max_rows: int = 1000
     dataset_restore_on_startup: bool = False

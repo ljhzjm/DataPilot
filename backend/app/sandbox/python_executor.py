@@ -34,6 +34,7 @@ class DockerPythonExecutor:
         max_input_bytes: int | None = None,
     ) -> None:
         settings = get_settings()
+        self._owns_client = client is None
         self._client = client or DockerClient.from_env()
         self._image = image or settings.sandbox_image
         self._timeout_seconds = timeout_seconds or settings.sandbox_timeout_seconds
@@ -44,6 +45,10 @@ class DockerPythonExecutor:
         self._max_code_lines = max_code_lines or settings.sandbox_max_code_lines
         self._max_code_chars = max_code_chars or settings.sandbox_max_code_chars
         self._max_input_bytes = max_input_bytes or settings.sandbox_max_input_bytes
+
+    async def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
 
     async def execute(
         self,

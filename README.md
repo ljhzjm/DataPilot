@@ -61,6 +61,7 @@ docker compose --profile sandbox down
 - 独立 Docker Python 沙箱、10 秒超时、8 KB 输出截断和断网验证。
 - DuckDB CSV/Parquet 查询和 PostgreSQL 只读事务执行器。
 - MCP Client/Server 集成，支持工具发现、Schema 查询、JSON Schema 转换和统一注册。
+- 独立 Sandbox Runner 持有 Docker Socket，FastAPI 后端不再直接控制 Docker。
 
 ## LLM 网关
 

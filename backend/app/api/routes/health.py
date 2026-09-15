@@ -45,6 +45,10 @@ async def ready(request: Request, response: Response) -> ReadyResponse:
         mcp_client = getattr(request.app.state, "mcp_client", None)
         checks["mcp"] = "ok" if mcp_client is not None and mcp_client.connected else "error"
 
+    sandbox_client = getattr(request.app.state, "sandbox_client", None)
+    if sandbox_client is not None:
+        checks["sandbox_runner"] = "ok" if await sandbox_client.health() else "error"
+
     if "error" in checks.values():
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return ReadyResponse(status="degraded", checks=checks)
