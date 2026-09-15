@@ -35,6 +35,9 @@ docker compose --profile sandbox up -d --build
 docker compose ps
 ```
 
+Compose 会先运行独立的 `migrate` 服务执行 `alembic upgrade head`，迁移成功后
+才启动后端。现有数据库会自动登记为初始迁移版本，不会重复建表。
+
 停止服务：
 
 ```powershell
@@ -101,6 +104,7 @@ DataPilot 通过 stdio JSON-RPC 连接独立 MCP Server，并把 MCP 工具转�
 ```powershell
 Set-Location backend
 uv sync --dev
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --port 18000
 ```
 
@@ -117,7 +121,7 @@ npm run dev
 
 ```text
 DataPilot/
-├── backend/          # FastAPI 服务与后续 Agent、工具、沙箱接入层
+├── backend/          # FastAPI、Agent、工具、沙箱与 Alembic 迁移
 ├── frontend/         # Vue 3 应用
 ├── sandbox/          # 不可信 Python 代码的隔离执行镜像
 ├── docker-compose.yml

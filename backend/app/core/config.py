@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     sandbox_max_input_bytes: int = 48_000
     postgres_query_timeout_seconds: int = 10
     postgres_max_rows: int = 1000
-    auto_create_schema: bool = False
+    dataset_restore_on_startup: bool = False
     chat_runtime_mode: Literal["preview", "agent", "disabled"] = "disabled"
     chat_history_limit: int = 20
     agent_max_steps: int = 8

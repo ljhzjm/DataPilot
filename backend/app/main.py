@@ -11,8 +11,6 @@ from app.api.router import api_router
 from app.chat.runtime import build_chat_runtime
 from app.core.config import get_settings
 from app.datasets.factory import build_dataset_service
-from app.db import models as db_models  # noqa: F401
-from app.db.base import Base
 from app.db.session import engine
 from app.llm.factory import build_model_router
 from app.mcp.client import MCPClient
@@ -47,9 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.exception("MCP startup failed")
             app.state.mcp_error = str(exc)
     app.state.mcp_client = mcp_client
-    if settings.auto_create_schema:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+    if settings.dataset_restore_on_startup:
         try:
             await build_dataset_service(app.state.analytics_engine).restore_engine()
         except Exception:
