@@ -101,3 +101,32 @@ class AgentStepRecord(Base):
     )
 
     message: Mapped[Message] = relationship(back_populates="steps")
+
+
+class Dataset(Base):
+    __tablename__ = "datasets"
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    name: Mapped[str] = mapped_column(String(160))
+    original_filename: Mapped[str] = mapped_column(String(255))
+    table_name: Mapped[str] = mapped_column(String(80), unique=True)
+    file_type: Mapped[str] = mapped_column(String(16))
+    file_size: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="processing")
+    original_path: Mapped[str] = mapped_column(Text)
+    parquet_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    columns: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )

@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -8,22 +10,64 @@ from redis.asyncio import Redis
 from app.api.router import api_router
 from app.chat.runtime import build_chat_runtime
 from app.core.config import get_settings
+from app.datasets.factory import build_dataset_service
 from app.db import models as db_models  # noqa: F401
 from app.db.base import Base
 from app.db.session import engine
+from app.llm.factory import build_model_router
+from app.mcp.client import MCPClient
+from app.tools.duckdb_engine import DuckDBAnalyticsEngine
+from app.tools.initial import build_initial_registry
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    app.state.chat_runtime = build_chat_runtime(settings)
+    app.state.analytics_engine = DuckDBAnalyticsEngine()
+    app.state.tool_registry = build_initial_registry(app.state.analytics_engine)
+    mcp_client: MCPClient | None = None
+    if settings.mcp_enabled:
+        mcp_client = MCPClient(
+            command=settings.mcp_server_command,
+            args=settings.mcp_server_args,
+        )
+        try:
+            async with asyncio.timeout(settings.mcp_startup_timeout_seconds):
+                await mcp_client.start()
+            mcp_client.register_tools(app.state.tool_registry)
+            app.state.mcp_error = None
+        except Exception as exc:
+            logger.exception("MCP startup failed")
+            app.state.mcp_error = str(exc)
+    app.state.mcp_client = mcp_client
     if settings.auto_create_schema:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+        try:
+            await build_dataset_service(app.state.analytics_engine).restore_engine()
+        except Exception:
+            logger.exception("Dataset restore failed")
+    app.state.llm_router = build_model_router(settings)
+    app.state.chat_runtime = build_chat_runtime(
+        settings,
+        model_router=app.state.llm_router,
+        tool_registry=app.state.tool_registry,
+    )
     try:
         yield
     finally:
+        if mcp_client is not None:
+            await mcp_client.close()
+        if app.state.llm_router is not None:
+            await app.state.llm_router.close()
+        app.state.analytics_engine.close()
         await app.state.redis.aclose()
         await engine.dispose()
 

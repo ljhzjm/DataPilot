@@ -57,6 +57,42 @@ docker compose --profile sandbox down
 - 最大步数、Token 预算和连续重复工具调用检测。
 - 独立 Docker Python 沙箱、10 秒超时、8 KB 输出截断和断网验证。
 - DuckDB CSV/Parquet 查询和 PostgreSQL 只读事务执行器。
+- MCP Client/Server 集成，支持工具发现、Schema 查询、JSON Schema 转换和统一注册。
+
+## LLM 网关
+
+`app/llm/` 提供 OpenAI 兼容网关、任务路由、流式事件和 Token 成本日志。
+在 `.env` 中配置：
+
+```dotenv
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_API_KEY=your-key
+LLM_DEFAULT_MODEL=deepseek-chat
+LLM_TASK_MODELS={"sql":"deepseek-reasoner","intent":"deepseek-chat"}
+```
+
+未配置 `LLM_API_KEY` 时，DataPilot 可使用预览运行时启动。将
+`CHAT_RUNTIME_MODE=agent` 后，聊天 SSE 会使用真实模型、Agent 工具循环、
+DuckDB 数据集、本地工具和 MCP 工具。
+
+## 数据集上传
+
+支持 `.csv`、`.tsv` 和 `.xlsx`，默认单文件上限 20 MB：
+
+- `POST /api/datasets/upload`：上传并转为 Parquet
+- `GET /api/datasets`：列出已登记数据集
+- `GET /api/datasets/{id}`：查看字段和状态
+- `GET /api/datasets/{id}/preview?limit=20`：预览数据
+- `DELETE /api/datasets/{id}`：删除元数据、Parquet 和 DuckDB 视图
+
+原始文件与 Parquet 保存在 `dataset_data` Docker Volume。后端启动时会根据
+PostgreSQL 元数据恢复已经登记的 DuckDB 表。
+
+## MCP 架构
+
+DataPilot 通过 stdio JSON-RPC 连接独立 MCP Server，并把 MCP 工具转换成统一的
+`RegisteredTool`。架构图和完整工具生命周期见
+[MCP 架构文档](docs/mcp-architecture.md)。
 
 ## 本地开发
 

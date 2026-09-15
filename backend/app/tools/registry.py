@@ -3,6 +3,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import BaseModel, ConfigDict, create_model
 from pydantic_core import PydanticUndefined
 
@@ -16,13 +18,19 @@ ToolFunction = TypeVar("ToolFunction", bound=ToolHandler)
 class RegisteredTool:
     name: str
     description: str
-    input_model: type[BaseModel]
+    input_model: type[BaseModel] | None
     handler: ToolHandler
     parallel_safe: bool = True
+    input_schema: dict[str, Any] | None = None
 
     @property
     def definition(self) -> ToolDefinition:
-        schema = self.input_model.model_json_schema()
+        if self.input_model is not None:
+            schema = self.input_model.model_json_schema()
+        elif self.input_schema is not None:
+            schema = self.input_schema
+        else:
+            raise ValueError(f"Tool '{self.name}' has no input schema.")
         schema.setdefault("additionalProperties", False)
         return ToolDefinition(
             function=FunctionDefinition(
@@ -33,8 +41,19 @@ class RegisteredTool:
         )
 
     async def invoke(self, arguments: dict[str, Any]) -> Any:
-        validated = self.input_model.model_validate(arguments)
-        kwargs = {name: getattr(validated, name) for name in self.input_model.model_fields}
+        if self.input_model is not None:
+            validated = self.input_model.model_validate(arguments)
+            kwargs = {name: getattr(validated, name) for name in self.input_model.model_fields}
+        else:
+            if self.input_schema is None:
+                raise ValueError(f"Tool '{self.name}' has no input schema.")
+            try:
+                Draft202012Validator(self.input_schema).validate(arguments)
+            except JsonSchemaValidationError as exc:
+                raise ValueError(
+                    f"Invalid arguments for tool '{self.name}': {exc.message}"
+                ) from exc
+            kwargs = arguments
         result = self.handler(**kwargs)
         if inspect.isawaitable(result):
             return await result

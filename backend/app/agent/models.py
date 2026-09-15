@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -59,6 +59,15 @@ class ChatModel(Protocol):
     ) -> LLMResponse: ...
 
 
+class StreamingChatModel(Protocol):
+    def chat_stream(
+        self,
+        *,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[ToolDefinition],
+    ) -> AsyncIterator[Any]: ...
+
+
 class ToolExecution(BaseModel):
     tool_call_id: str
     tool_name: str
@@ -80,6 +89,7 @@ class AgentConfig(BaseModel):
     max_steps: int = Field(default=8, ge=1)
     max_total_tokens: int = Field(default=8192, ge=1)
     parallel_tool_calls: bool = True
+    stream_model: bool = True
     max_tool_result_chars: int = Field(default=16_000, ge=256)
 
 
@@ -90,3 +100,10 @@ class AgentRunResult(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     steps: list[AgentStep] = Field(default_factory=list)
     usage: TokenUsage = Field(default_factory=TokenUsage)
+
+
+class AgentStreamEvent(BaseModel):
+    type: Literal["text_delta", "step", "completed"]
+    text_delta: str | None = None
+    step: AgentStep | None = None
+    result: AgentRunResult | None = None

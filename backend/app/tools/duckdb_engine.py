@@ -1,4 +1,5 @@
 import threading
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -78,6 +79,52 @@ class DuckDBAnalyticsEngine:
                 else self._connection.read_csv(str(path))
             )
             relation.create_view(table_name, replace=True)
+
+    def register_rows(
+        self,
+        table_name: str,
+        columns: dict[str, str],
+        rows: Sequence[Sequence[Any]],
+    ) -> None:
+        """Register trusted in-memory seed data for tools that need a fixed catalog."""
+        self._validate_identifier(table_name)
+        if not columns:
+            raise ValueError("At least one column is required.")
+        for column_name, data_type in columns.items():
+            self._validate_identifier(column_name)
+            if (
+                not data_type
+                or not data_type.replace(" ", "")
+                .replace("(", "")
+                .replace(")", "")
+                .replace(",", "")
+                .isalnum()
+            ):
+                raise ValueError(f"Invalid column type: {data_type}")
+
+        column_sql = ", ".join(
+            f"{_quote_identifier(column_name)} {data_type}"
+            for column_name, data_type in columns.items()
+        )
+        placeholders = ", ".join("?" for _ in columns)
+        quoted_table = _quote_identifier(table_name)
+        with self._lock:
+            self._connection.execute(
+                f"CREATE OR REPLACE TABLE {quoted_table} ({column_sql})"  # noqa: S608
+            )
+            if rows:
+                self._connection.executemany(
+                    f"INSERT INTO {quoted_table} VALUES ({placeholders})",  # noqa: S608
+                    rows,
+                )
+
+    def drop_table(self, table_name: str) -> None:
+        self._validate_identifier(table_name)
+        quoted_table = _quote_identifier(table_name)
+        with self._lock:
+            self._connection.execute(
+                f"DROP VIEW IF EXISTS {quoted_table}"  # noqa: S608
+            )
 
     def list_tables(self) -> list[TableInfo]:
         with self._lock:
@@ -159,6 +206,15 @@ class DuckDBAnalyticsEngine:
             row_count=len(rows),
             truncated=truncated,
             elapsed_ms=(perf_counter() - started) * 1000,
+        )
+
+    def preview_table(self, table_name: str, *, limit: int = 20) -> QueryResult:
+        self._validate_identifier(table_name)
+        if limit < 1 or limit > self._max_query_rows:
+            raise ValueError(f"Preview limit must be between 1 and {self._max_query_rows}.")
+        quoted_table = _quote_identifier(table_name)
+        return self.execute_select(
+            f"SELECT * FROM {quoted_table} LIMIT {limit}"  # noqa: S608
         )
 
     @staticmethod

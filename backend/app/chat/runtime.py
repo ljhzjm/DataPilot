@@ -6,8 +6,16 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from app.agent.loop import Agent
-from app.agent.models import AgentStep, ChatMessage, TokenUsage, ToolExecution
+from app.agent.models import (
+    AgentConfig,
+    AgentStep,
+    ChatMessage,
+    TokenUsage,
+    ToolExecution,
+)
 from app.core.config import Settings
+from app.llm.router import ModelRouter
+from app.tools.registry import ToolRegistry
 
 
 class RuntimeEventType(StrEnum):
@@ -44,19 +52,29 @@ class AgentChatRuntime:
         question: str,
         history: Sequence[ChatMessage],
     ) -> AsyncIterator[RuntimeEvent]:
-        del history
-        result = await self._agent.run(question)
-        for step in result.steps:
-            yield RuntimeEvent(type=RuntimeEventType.STEP, step=step)
-        if result.output:
-            yield RuntimeEvent(type=RuntimeEventType.TEXT, text=result.output)
-        yield RuntimeEvent(
-            type=RuntimeEventType.DONE,
-            data={
-                "status": result.status,
-                "termination_reason": result.termination_reason,
-            },
-        )
+        async for event in self._agent.stream(
+            question,
+            history=history,
+            system_prompt=_agent_system_prompt(),
+        ):
+            if event.type == "text_delta" and event.text_delta:
+                yield RuntimeEvent(
+                    type=RuntimeEventType.TEXT,
+                    text=event.text_delta,
+                )
+            elif event.type == "step" and event.step is not None:
+                yield RuntimeEvent(
+                    type=RuntimeEventType.STEP,
+                    step=event.step,
+                )
+            elif event.type == "completed" and event.result is not None:
+                yield RuntimeEvent(
+                    type=RuntimeEventType.DONE,
+                    data={
+                        "status": event.result.status,
+                        "termination_reason": event.result.termination_reason,
+                    },
+                )
 
 
 class UnavailableChatRuntime:
@@ -172,9 +190,31 @@ class PreviewChatRuntime:
         yield RuntimeEvent(type=RuntimeEventType.DONE, data={"status": "completed"})
 
 
-def build_chat_runtime(settings: Settings) -> ChatRuntime:
+def build_chat_runtime(
+    settings: Settings,
+    *,
+    model_router: ModelRouter | None = None,
+    tool_registry: ToolRegistry | None = None,
+) -> ChatRuntime:
     if settings.chat_runtime_mode == "preview":
         return PreviewChatRuntime()
+    if (
+        settings.chat_runtime_mode == "agent"
+        and model_router is not None
+        and tool_registry is not None
+    ):
+        return AgentChatRuntime(
+            Agent(
+                model=model_router,
+                tools=tool_registry,
+                config=AgentConfig(
+                    max_steps=settings.agent_max_steps,
+                    max_total_tokens=settings.agent_max_total_tokens,
+                    parallel_tool_calls=settings.agent_parallel_tools,
+                    stream_model=True,
+                ),
+            )
+        )
     return UnavailableChatRuntime()
 
 
@@ -207,4 +247,20 @@ def _preview_step(
             )
         ],
         usage=TokenUsage(input_tokens=0, output_tokens=0),
+    )
+
+
+def _agent_system_prompt() -> str:
+    return (
+        "你是 DataPilot 对话式数据分析智能体。"
+        "本地分析数据与公司 MCP 数据是两个独立数据源。"
+        "本地数据：先使用 list_tables 和 get_schema 了解表结构，"
+        "再用 run_sql 执行只读 SELECT。"
+        "公司 MCP 数据：先使用 mcp__get_company_schema，"
+        "再使用 mcp__query_company_data；禁止查询 information_schema。"
+        "需要图表时使用 plot_chart，并传入结构化 Chart Spec。"
+        "禁止生成写操作或访问未登记数据源。"
+        "工具失败后必须根据错误修正参数或更换工具，"
+        "禁止重复提交完全相同的工具调用。"
+        "调用工具时不要输出面向用户的结论；获得足够信息后再简洁回答。"
     )

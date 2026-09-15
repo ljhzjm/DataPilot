@@ -57,14 +57,33 @@ services:
       POSTGRES_QUERY_TIMEOUT_SECONDS: "10"
       POSTGRES_MAX_ROWS: "1000"
       AUTO_CREATE_SCHEMA: "true"
-      CHAT_RUNTIME_MODE: "preview"
+      CHAT_RUNTIME_MODE: "${CHAT_RUNTIME_MODE:-agent}"
       CHAT_HISTORY_LIMIT: "20"
+      AGENT_MAX_STEPS: "${AGENT_MAX_STEPS:-8}"
+      AGENT_MAX_TOTAL_TOKENS: "${AGENT_MAX_TOTAL_TOKENS:-8192}"
+      AGENT_PARALLEL_TOOLS: "${AGENT_PARALLEL_TOOLS:-true}"
+      MCP_ENABLED: "true"
+      MCP_SERVER_ARGS: '["-m","app.mcp.server"]'
+      MCP_STARTUP_TIMEOUT_SECONDS: "10"
+      LLM_PROVIDER_NAME: "${LLM_PROVIDER_NAME:-openai_compatible}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://api.openai.com/v1}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_DEFAULT_MODEL: "${LLM_DEFAULT_MODEL:-gpt-4o-mini}"
+      LLM_TASK_MODELS: '${LLM_TASK_MODELS:-{"sql":"gpt-4o-mini","intent":"gpt-4o-mini"}}'
+      LLM_TIMEOUT_SECONDS: "${LLM_TIMEOUT_SECONDS:-60}"
+      LLM_MAX_RETRIES: "${LLM_MAX_RETRIES:-2}"
+      LLM_INCLUDE_USAGE_IN_STREAM: "${LLM_INCLUDE_USAGE_IN_STREAM:-true}"
+      DATASET_UPLOAD_DIR: "/app/data/uploads"
+      DATASET_MAX_UPLOAD_BYTES: "${DATASET_MAX_UPLOAD_BYTES:-20971520}"
+      DATASET_MAX_ROWS: "${DATASET_MAX_ROWS:-500000}"
+      DATASET_MAX_COLUMNS: "${DATASET_MAX_COLUMNS:-500}"
       UV_PROJECT_ENVIRONMENT: /opt/venv
     ports:
       - "127.0.0.1:${BACKEND_PORT:-18000}:8000"
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
+      - dataset_data:/app/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,3 +150,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  dataset_data:

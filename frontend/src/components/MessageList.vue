@@ -7,6 +7,7 @@ import { Bot, UserRound } from '@lucide/vue'
 import { nextTick, ref, watch } from 'vue'
 
 import type { ChatMessage } from '../types/chat'
+import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps<{
   messages: ChatMessage[]
@@ -68,7 +69,15 @@ watch(
         <Bot v-else :size="17" />
       </div>
       <div class="message-body">
-        <p class="message-content">
+        <!-- markdown-it 已关闭原始 HTML，并会转义不可信内容。 -->
+        <!-- eslint-disable vue/no-v-html -->
+        <div
+          v-if="message.role === 'assistant'"
+          class="message-content markdown-content"
+          v-html="renderMarkdown(message.content)"
+        ></div>
+        <!-- eslint-enable vue/no-v-html -->
+        <p v-else class="message-content">
           {{ message.content || (message.status === 'streaming' ? '正在分析…' : '') }}
         </p>
         <span v-if="message.status === 'aborted'" class="message-status">已停止</span>
@@ -185,6 +194,48 @@ watch(
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.markdown-content :deep(p) {
+  margin: 0 0 10px;
+}
+
+.markdown-content :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-content :deep(table) {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.markdown-content :deep(th),
+.markdown-content :deep(td) {
+  padding: 7px 9px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.markdown-content :deep(th) {
+  background: #f1f5f9;
+}
+
+.markdown-content :deep(code) {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+}
+
+.markdown-content :deep(pre) {
+  max-width: 100%;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f8fafc;
 }
 
 .message-status {

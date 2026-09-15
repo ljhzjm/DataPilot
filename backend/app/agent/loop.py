@@ -1,10 +1,10 @@
 import asyncio
 import json
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -13,12 +13,16 @@ from app.agent.models import (
     AgentConfig,
     AgentRunResult,
     AgentStep,
+    AgentStreamEvent,
     ChatMessage,
     ChatModel,
+    LLMResponse,
+    StreamingChatModel,
     TokenUsage,
     ToolCall,
     ToolExecution,
 )
+from app.tools.definitions import ToolDefinition
 from app.tools.registry import ToolRegistry
 
 
@@ -39,19 +43,39 @@ class Agent:
         user_input: str,
         *,
         system_prompt: str | None = None,
+        history: Sequence[ChatMessage] = (),
     ) -> AgentRunResult:
-        messages: list[ChatMessage] = []
+        async for event in self.stream(
+            user_input,
+            system_prompt=system_prompt,
+            history=history,
+        ):
+            if event.type == "completed" and event.result is not None:
+                return event.result
+        raise RuntimeError("Agent stream ended without a completed event.")
+
+    async def stream(
+        self,
+        user_input: str,
+        *,
+        system_prompt: str | None = None,
+        history: Sequence[ChatMessage] = (),
+    ) -> AsyncIterator[AgentStreamEvent]:
+        messages: list[ChatMessage] = list(history)
         if system_prompt:
-            messages.append(ChatMessage(role="system", content=system_prompt))
+            messages.insert(0, ChatMessage(role="system", content=system_prompt))
         messages.append(ChatMessage(role="user", content=user_input))
 
         usage = TokenUsage()
         steps: list[AgentStep] = []
-        previous_signature: tuple[tuple[str, str], ...] | None = None
+        previous_signature: frozenset[tuple[str, str]] | None = None
         tool_definitions = self._tools.definitions()
 
         for step_number in range(1, self._config.max_steps + 1):
-            response = await self._model.chat(messages=messages, tools=tool_definitions)
+            response, streamed_text = await self._chat_response(
+                messages,
+                tool_definitions,
+            )
             usage = usage + response.usage
             assistant_message = ChatMessage(
                 role="assistant",
@@ -68,14 +92,19 @@ class Agent:
             )
 
             if not response.tool_calls:
+                for text_delta in streamed_text:
+                    yield AgentStreamEvent(type="text_delta", text_delta=text_delta)
                 steps.append(step)
-                return AgentRunResult(
+                result = AgentRunResult(
                     status="completed",
                     output=response.content,
                     messages=messages,
                     steps=steps,
                     usage=usage,
                 )
+                yield AgentStreamEvent(type="step", step=step)
+                yield AgentStreamEvent(type="completed", result=result)
+                return
 
             if usage.total_tokens > self._config.max_total_tokens:
                 steps.append(step)
@@ -83,7 +112,7 @@ class Agent:
                     f"已达到 Token 预算：已使用 {usage.total_tokens}，"
                     f"预算为 {self._config.max_total_tokens}。"
                 )
-                return AgentRunResult(
+                result = AgentRunResult(
                     status="token_budget_exceeded",
                     output=reason,
                     termination_reason=reason,
@@ -91,12 +120,21 @@ class Agent:
                     steps=steps,
                     usage=usage,
                 )
+                yield AgentStreamEvent(type="step", step=step)
+                yield AgentStreamEvent(type="completed", result=result)
+                return
 
             current_signature = self._call_signature(response.tool_calls)
-            if previous_signature == current_signature:
+            repeated_calls = (
+                previous_signature.intersection(current_signature)
+                if previous_signature is not None
+                else set()
+            )
+            if repeated_calls:
                 steps.append(step)
-                reason = "检测到连续重复的工具调用，已停止 Agent 以避免循环。"
-                return AgentRunResult(
+                repeated_names = ", ".join(sorted({name for name, _ in repeated_calls}))
+                reason = f"检测到连续重复的工具调用：{repeated_names}。请更换工具或参数后重试。"
+                result = AgentRunResult(
                     status="loop_detected",
                     output=reason,
                     termination_reason=reason,
@@ -104,10 +142,14 @@ class Agent:
                     steps=steps,
                     usage=usage,
                 )
+                yield AgentStreamEvent(type="step", step=step)
+                yield AgentStreamEvent(type="completed", result=result)
+                return
 
             executions = await self._execute_tool_calls(response.tool_calls)
             step.tool_executions = executions
             steps.append(step)
+            yield AgentStreamEvent(type="step", step=step)
 
             for execution in executions:
                 messages.append(
@@ -122,13 +164,69 @@ class Agent:
             previous_signature = current_signature
 
         reason = f"已达到最大执行步数 {self._config.max_steps}，Agent 已停止。"
-        return AgentRunResult(
+        result = AgentRunResult(
             status="max_steps",
             output=reason,
             termination_reason=reason,
             messages=messages,
             steps=steps,
             usage=usage,
+        )
+        yield AgentStreamEvent(type="completed", result=result)
+
+    async def _chat_response(
+        self,
+        messages: Sequence[ChatMessage],
+        tool_definitions: Sequence[ToolDefinition],
+    ) -> tuple[LLMResponse, list[str]]:
+        if not self._config.stream_model or not hasattr(self._model, "chat_stream"):
+            return (
+                await self._model.chat(
+                    messages=messages,
+                    tools=tool_definitions,
+                ),
+                [],
+            )
+
+        text_parts: list[str] = []
+        tool_call_parts: dict[int, dict[str, str]] = {}
+        usage = TokenUsage()
+        finish_reason: str | None = None
+
+        streaming_model = cast(StreamingChatModel, self._model)
+        stream = streaming_model.chat_stream(
+            messages=messages,
+            tools=tool_definitions,
+        )
+        async for event in stream:
+            if event.type == "text_delta" and event.content_delta:
+                text_parts.append(event.content_delta)
+            elif event.type == "tool_call_delta" and event.tool_call_delta is not None:
+                index = event.tool_call_delta.index
+                builder = tool_call_parts.setdefault(
+                    index,
+                    {"id": "", "name": "", "arguments": ""},
+                )
+                if event.tool_call_delta.id:
+                    builder["id"] = event.tool_call_delta.id
+                if event.tool_call_delta.name:
+                    builder["name"] = event.tool_call_delta.name
+                if event.tool_call_delta.arguments_delta:
+                    builder["arguments"] += event.tool_call_delta.arguments_delta
+            elif event.type == "usage" and event.usage is not None:
+                usage = event.usage
+            elif event.type == "finish":
+                finish_reason = event.finish_reason
+
+        tool_calls = _assemble_tool_calls(tool_call_parts)
+        return (
+            LLMResponse(
+                content="".join(text_parts) if not tool_calls else None,
+                tool_calls=tool_calls,
+                usage=usage,
+                finish_reason=finish_reason,
+            ),
+            text_parts,
         )
 
     async def _execute_tool_calls(self, calls: Sequence[ToolCall]) -> list[ToolExecution]:
@@ -186,8 +284,8 @@ class Agent:
         return serialized[:limit]
 
     @staticmethod
-    def _call_signature(calls: Sequence[ToolCall]) -> tuple[tuple[str, str], ...]:
-        return tuple(
+    def _call_signature(calls: Sequence[ToolCall]) -> frozenset[tuple[str, str]]:
+        return frozenset(
             (
                 call.name,
                 json.dumps(call.arguments, ensure_ascii=True, sort_keys=True, default=str),
@@ -208,3 +306,27 @@ class Agent:
         if isinstance(value, (Decimal, UUID)):
             return str(value)
         return value
+
+
+def _assemble_tool_calls(
+    parts: dict[int, dict[str, str]],
+) -> list[ToolCall]:
+    calls: list[ToolCall] = []
+    for index in sorted(parts):
+        part = parts[index]
+        if not part["name"]:
+            continue
+        try:
+            arguments = json.loads(part["arguments"] or "{}")
+            if not isinstance(arguments, dict):
+                raise ValueError("Tool call arguments must be a JSON object.")
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"Invalid streamed tool call arguments: {exc}") from exc
+        calls.append(
+            ToolCall(
+                id=part["id"] or f"stream-call-{index}",
+                name=part["name"],
+                arguments=arguments,
+            )
+        )
+    return calls

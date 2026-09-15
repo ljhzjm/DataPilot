@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from app.core.config import get_settings
 from app.db.session import engine
 
 router = APIRouter()
@@ -39,6 +40,10 @@ async def ready(request: Request, response: Response) -> ReadyResponse:
         checks["redis"] = "ok"
     except Exception:
         checks["redis"] = "error"
+
+    if get_settings().mcp_enabled:
+        mcp_client = getattr(request.app.state, "mcp_client", None)
+        checks["mcp"] = "ok" if mcp_client is not None and mcp_client.connected else "error"
 
     if "error" in checks.values():
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

@@ -1,10 +1,11 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 import pytest
 
 from app.agent import Agent, AgentConfig, ChatMessage, LLMResponse, TokenUsage, ToolCall
+from app.llm.base import StreamEvent, ToolCallDelta
 from app.tools.definitions import ToolDefinition
 from app.tools.registry import ToolRegistry, tool
 
@@ -22,6 +23,69 @@ class ScriptedModel:
     ) -> LLMResponse:
         self.calls.append((list(messages), list(tools)))
         return self._responses.pop(0)
+
+
+class StreamingScriptedModel:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(
+        self,
+        *,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[ToolDefinition],
+    ) -> LLMResponse:
+        raise AssertionError("chat() should not be used for a streaming model")
+
+    async def chat_stream(
+        self,
+        *,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[ToolDefinition],
+    ) -> AsyncIterator[StreamEvent]:
+        del messages, tools
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                type="tool_call_delta",
+                tool_call_delta=ToolCallDelta(
+                    index=0,
+                    id="call-1",
+                    name="echo",
+                    arguments_delta='{"value":9}',
+                ),
+            )
+            yield StreamEvent(
+                type="usage",
+                usage=TokenUsage(input_tokens=5, output_tokens=2),
+            )
+            yield StreamEvent(type="finish", finish_reason="tool_calls")
+        else:
+            yield StreamEvent(type="text_delta", content_delta="结果")
+            yield StreamEvent(
+                type="usage",
+                usage=TokenUsage(input_tokens=6, output_tokens=1),
+            )
+            yield StreamEvent(type="finish", finish_reason="stop")
+
+
+@pytest.mark.asyncio
+async def test_agent_streams_tool_call_and_final_text() -> None:
+    model = StreamingScriptedModel()
+    agent = Agent(model=model, tools=make_registry())
+    events = [event async for event in agent.stream("返回值")]
+
+    assert [event.type for event in events] == [
+        "step",
+        "text_delta",
+        "step",
+        "completed",
+    ]
+    assert events[0].step is not None
+    assert events[0].step.tool_executions[0].result == {"value": 9}
+    assert events[1].text_delta == "结果"
+    assert events[3].result is not None
+    assert events[3].result.output == "结果"
 
 
 def make_registry(on_call: Any | None = None) -> ToolRegistry:

@@ -3,15 +3,17 @@ Vue 概念：组件通过 Pinia store 共享状态，模板中的事件处理函
 此处把“会话选择、消息列表、输入框”组成左栏，页面本身不直接请求接口。
 -->
 <script setup lang="ts">
-import { History, Plus } from '@lucide/vue'
+import { Database, History, Plus } from '@lucide/vue'
 import { ref } from 'vue'
 
 import { useChatStore } from '../stores/chat'
+import DatasetDrawer from './DatasetDrawer.vue'
 import MessageComposer from './MessageComposer.vue'
 import MessageList from './MessageList.vue'
 
 const store = useChatStore()
 const historyOpen = ref(false)
+const datasetOpen = ref(false)
 
 async function chooseConversation(conversationId: string): Promise<void> {
   historyOpen.value = false
@@ -32,11 +34,30 @@ async function createConversation(): Promise<void> {
         <strong>数据分析对话</strong>
       </div>
       <div class="panel-actions">
+        <el-tooltip content="数据表" placement="bottom">
+          <el-button
+            :icon="Database"
+            circle
+            aria-label="数据表"
+            @click="datasetOpen = true"
+          />
+        </el-tooltip>
         <el-tooltip content="历史会话" placement="bottom">
-          <el-button :icon="History" circle @click="historyOpen = true" />
+          <el-button
+            :icon="History"
+            circle
+            aria-label="历史会话"
+            @click="historyOpen = true"
+          />
         </el-tooltip>
         <el-tooltip content="新建会话" placement="bottom">
-          <el-button type="primary" :icon="Plus" circle @click="createConversation" />
+          <el-button
+            type="primary"
+            :icon="Plus"
+            circle
+            aria-label="新建会话"
+            @click="createConversation"
+          />
         </el-tooltip>
       </div>
     </header>
@@ -74,6 +95,7 @@ async function createConversation(): Promise<void> {
         <span>{{ conversation.message_count }} 条消息</span>
       </button>
     </el-drawer>
+    <DatasetDrawer v-model="datasetOpen" />
   </section>
 </template>
 
@@ -146,4 +168,3 @@ async function createConversation(): Promise<void> {
   font-size: 12px;
 }
 </style>
-
