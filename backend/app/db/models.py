@@ -1,0 +1,103 @@
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    title: Mapped[str] = mapped_column(String(160), default="新会话")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="Message.sequence",
+    )
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "sequence", name="uq_messages_conversation_sequence"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        index=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="completed")
+    tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    message_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")
+    steps: Mapped[list["AgentStepRecord"]] = relationship(
+        back_populates="message",
+        cascade="all, delete-orphan",
+        order_by="AgentStepRecord.step_index",
+    )
+
+
+class AgentStepRecord(Base):
+    __tablename__ = "agent_steps"
+    __table_args__ = (
+        UniqueConstraint("message_id", "step_index", name="uq_agent_steps_message_index"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        index=True,
+    )
+    step_index: Mapped[int] = mapped_column(Integer)
+    assistant_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    tool_executions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    usage: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+
+    message: Mapped[Message] = relationship(back_populates="steps")
