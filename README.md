@@ -1,6 +1,6 @@
 # DataPilot
 
-DataPilot 是一个对话式数据分析智能体。当前仓库已完成工程初始化、自实现 Agent 工具调用循环、工具注册表、NL2SQL 自纠错、结构化图表工具、DuckDB 只读查询、安全 SQL 护栏和独立 Docker Python 沙箱；前端执行轨迹将在后续阶段接入。
+DataPilot 是一个对话式数据分析智能体。当前仓库已完成自实现 Agent 工具调用循环、NL2SQL 自纠错、结构化图表、DuckDB 只读查询、安全 SQL 护栏、独立 Docker Python 沙箱、前端执行轨迹、会话持久化、可观测性和确定性 Agent 评测。
 
 ## 技术栈
 
@@ -59,8 +59,11 @@ docker compose --profile sandbox down
 - SQL 单语句、只读、表白名单和危险函数校验。
 - 最大步数、Token 预算和连续重复工具调用检测。
 - 独立 Docker Python 沙箱、10 秒超时、8 KB 输出截断和断网验证。
+- `run_python` 可按白名单表名把 Parquet 只读挂载到 `/data/<table_name>/`。
+- 沙箱产物写入隔离 Volume，仅回收 `.csv`、`.json`、`.png` 并持久化下载地址。
+- 确定性 Agent 评测覆盖工具编排、自纠错、循环检测和安全预算，可接入 CI。
 - DuckDB CSV/Parquet 查询和 PostgreSQL 只读事务执行器。
-- MCP Client/Server 集成，支持工具发现、Schema 查询、JSON Schema 转换和统一注册。
+- MCP Client/Server 集成，支持启动重试、自动重连、工具热刷新、Ping 健康检查和统一注册。
 - 独立 Sandbox Runner 持有 Docker Socket，FastAPI 后端不再直接控制 Docker。
 
 ## LLM 网关
@@ -91,6 +94,29 @@ DuckDB 数据集、本地工具和 MCP 工具。
 
 原始文件与 Parquet 保存在 `dataset_data` Docker Volume。后端启动时会根据
 PostgreSQL 元数据恢复已经登记的 DuckDB 表。
+
+## Python 分析与产物
+
+Agent 仅在 `run_python` 需要高级分析时调用隔离沙箱。`datasets` 参数只能引用
+`list_tables` 返回的已就绪表；对应目录以只读方式挂载到
+`/data/<table_name>/data.parquet`。沙箱内的 `/workspace/outputs` 是独立可写
+Volume，执行结束后只回收 `.csv`、`.json`、`.png`，最多 20 个文件、总计 10 MB。
+
+产物元数据写入 PostgreSQL，文件保存在 `artifact_data` Volume，并可通过
+`GET /api/artifacts/{artifact_id}` 下载。模型只看到文件名、类型、大小和 URL，
+不会收到文件 Base64 内容。
+
+## Agent 评测
+
+确定性评测不调用外部模型，可重复验证工具选择、SQL 自纠错、危险 SQL 拒绝、
+重复调用检测、Token 预算和最大步数：
+
+```powershell
+Set-Location backend
+uv run python -m app.evaluation
+```
+
+完整用例和扩展方式见 [Agent 评测文档](docs/agent-evaluation.md)。
 
 ## SSE 可靠性
 

@@ -535,6 +535,15 @@ def _compact_tool_content(
                 "tables": result.get("tables"),
                 "count": result.get("count"),
             }
+        elif tool_name == "run_python":
+            artifacts = result.get("artifacts")
+            summary["summary"] = {
+                "ok": result.get("ok"),
+                "stdout": str(result.get("stdout") or "")[:500],
+                "stderr": str(result.get("stderr") or "")[:500],
+                "truncated": result.get("truncated"),
+                "artifact_count": len(artifacts) if isinstance(artifacts, list) else 0,
+            }
         else:
             summary["summary"] = str(result)[:500]
     else:

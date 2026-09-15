@@ -4,17 +4,25 @@ import httpx
 import pytest
 
 from app.sandbox.client import SandboxClient
+from app.sandbox.models import SandboxDatasetMount
 
 
 @pytest.mark.asyncio
 async def test_sandbox_client_sends_token_and_parses_result() -> None:
     captured_token: str | None = None
+    dataset_id = "11111111-1111-1111-1111-111111111111"
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal captured_token
         captured_token = request.headers.get("X-Sandbox-Token")
         body = json.loads(request.content)
         assert body["code"] == "print(42)"
+        assert body["data_mounts"] == [
+            {
+                "dataset_id": dataset_id,
+                "target_name": "dataset_sales",
+            }
+        ]
         return httpx.Response(
             200,
             json={
@@ -34,7 +42,17 @@ async def test_sandbox_client_sends_token_and_parses_result() -> None:
             token="test-token",
             client=http_client,
         )
-        result = await client.execute("print(42)")
+        result = await client.execute(
+            "print(42)",
+            data_mounts=[
+                SandboxDatasetMount.model_validate(
+                    {
+                        "dataset_id": dataset_id,
+                        "target_name": "dataset_sales",
+                    }
+                )
+            ],
+        )
 
     assert captured_token == "test-token"
     assert result.ok is True

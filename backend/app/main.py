@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -8,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
 from app.api.router import api_router
+from app.artifacts.service import ArtifactStore
 from app.chat.events import RedisEventBroker
 from app.chat.runtime import build_chat_runtime
 from app.chat.tasks import ChatTaskManager
@@ -22,6 +22,7 @@ from app.sandbox.duckdb_executor import DuckDBReadOnlyExecutor
 from app.sandbox.service import SandboxService
 from app.tools.duckdb_engine import DuckDBAnalyticsEngine
 from app.tools.initial import build_initial_registry
+from app.tools.python import build_run_python_tool
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -37,6 +38,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.chat_event_broker = RedisEventBroker(app.state.redis)
     app.state.chat_task_manager = ChatTaskManager()
     app.state.analytics_engine = DuckDBAnalyticsEngine()
+    app.state.dataset_service = build_dataset_service(app.state.analytics_engine)
+    app.state.artifact_store = ArtifactStore(
+        AsyncSessionLocal,
+        settings.artifact_storage_dir,
+    )
     app.state.tool_registry = build_initial_registry(app.state.analytics_engine)
     sandbox_client = SandboxClient()
     app.state.sandbox_client = sandbox_client
@@ -44,16 +50,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         python_executor=sandbox_client,
         duckdb_executor=DuckDBReadOnlyExecutor(app.state.analytics_engine),
     )
+    app.state.tool_registry.register(
+        build_run_python_tool(
+            dataset_service=app.state.dataset_service,
+            sandbox_service=app.state.sandbox_service,
+            artifact_store=app.state.artifact_store,
+        )
+    )
     mcp_client: MCPClient | None = None
     if settings.mcp_enabled:
         mcp_client = MCPClient(
             command=settings.mcp_server_command,
             args=settings.mcp_server_args,
+            connect_attempts=settings.mcp_connect_attempts,
+            retry_base_delay_seconds=settings.mcp_retry_base_delay_seconds,
+            retry_max_delay_seconds=settings.mcp_retry_max_delay_seconds,
+            healthcheck_interval_seconds=settings.mcp_healthcheck_interval_seconds,
+            tool_refresh_interval_seconds=settings.mcp_tool_refresh_interval_seconds,
+            call_retry_attempts=settings.mcp_call_retry_attempts,
+            connect_timeout_seconds=settings.mcp_startup_timeout_seconds,
         )
+        mcp_client.register_tools(app.state.tool_registry)
         try:
-            async with asyncio.timeout(settings.mcp_startup_timeout_seconds):
-                await mcp_client.start()
-            mcp_client.register_tools(app.state.tool_registry)
+            await mcp_client.start()
             app.state.mcp_error = None
         except Exception as exc:
             logger.exception("MCP startup failed")
@@ -61,7 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.mcp_client = mcp_client
     if settings.dataset_restore_on_startup:
         try:
-            await build_dataset_service(app.state.analytics_engine).restore_engine()
+            await app.state.dataset_service.restore_engine()
         except Exception:
             logger.exception("Dataset restore failed")
     usage_recorder = DatabaseUsageRecorder(AsyncSessionLocal)

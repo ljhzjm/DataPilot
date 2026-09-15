@@ -1,5 +1,15 @@
-"""MCP server and client integration."""
+"""MCP server and resilient client integration."""
 
-from app.mcp.client import MCPClient, MCPToolCallError
+from app.mcp.client import (
+    MCPClient,
+    MCPClientStatus,
+    MCPConnectionError,
+    MCPToolCallError,
+)
 
-__all__ = ["MCPClient", "MCPToolCallError"]
+__all__ = [
+    "MCPClient",
+    "MCPClientStatus",
+    "MCPConnectionError",
+    "MCPToolCallError",
+]

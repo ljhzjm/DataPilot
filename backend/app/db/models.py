@@ -199,3 +199,23 @@ class LLMUsageRecord(Base):
         default=utc_now,
         index=True,
     )
+
+
+class Artifact(Base):
+    __tablename__ = "artifacts"
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    stored_path: Mapped[str] = mapped_column(Text)
+    mime_type: Mapped[str] = mapped_column(String(128))
+    size: Mapped[int] = mapped_column(Integer)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        index=True,
+    )

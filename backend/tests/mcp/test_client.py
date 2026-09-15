@@ -1,8 +1,10 @@
+import asyncio
+import os
 from pathlib import Path
 
 import pytest
 
-from app.mcp.client import MCPClient, MCPToolCallError
+from app.mcp.client import MCPClient, MCPConnectionError, MCPToolCallError
 from app.tools.duckdb_engine import DuckDBAnalyticsEngine
 from app.tools.initial import build_initial_registry
 from app.tools.registry import ToolRegistry
@@ -107,3 +109,98 @@ async def test_builtin_company_server_is_discoverable_and_read_only() -> None:
         "salary",
         "hire_date",
     ]
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_reconnects_and_refreshes_tools(tmp_path: Path) -> None:
+    marker = tmp_path / "crashed"
+    client = MCPClient(
+        args=[str(BACKEND_ROOT / "tests" / "mcp" / "crash_recovery_server.py")],
+        cwd=BACKEND_ROOT,
+        env={
+            **os.environ,
+            "MCP_TEST_MARKER": str(marker),
+        },
+        connect_attempts=2,
+        retry_base_delay_seconds=0,
+        connect_timeout_seconds=2,
+    )
+    registry = ToolRegistry()
+
+    try:
+        await client.start()
+        client.register_tools(registry)
+        assert registry.get("mcp__recovered_tool") is None
+
+        tool = registry.get("mcp__stop_and_recover")
+        assert tool is not None
+        result = await tool.invoke({})
+
+        assert result == {"recovered": True}
+        assert client.connected is True
+        assert client.status.reconnect_count == 1
+        assert registry.get("mcp__recovered_tool") is not None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_retries_initial_startup(tmp_path: Path) -> None:
+    counter = tmp_path / "start-count"
+    client = MCPClient(
+        args=[str(BACKEND_ROOT / "tests" / "mcp" / "flaky_startup_server.py")],
+        cwd=BACKEND_ROOT,
+        env={
+            **os.environ,
+            "MCP_TEST_START_COUNTER": str(counter),
+            "MCP_TEST_REQUIRED_FAILURES": "1",
+        },
+        connect_attempts=3,
+        retry_base_delay_seconds=0,
+        connect_timeout_seconds=2,
+    )
+    registry = ToolRegistry()
+
+    try:
+        await client.start()
+        client.register_tools(registry)
+
+        assert client.connected is True
+        assert counter.read_text(encoding="utf-8") == "2"
+        assert registry.get("mcp__ready") is not None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_recovers_after_failed_startup(tmp_path: Path) -> None:
+    counter = tmp_path / "background-start-count"
+    client = MCPClient(
+        args=[str(BACKEND_ROOT / "tests" / "mcp" / "flaky_startup_server.py")],
+        cwd=BACKEND_ROOT,
+        env={
+            **os.environ,
+            "MCP_TEST_START_COUNTER": str(counter),
+            "MCP_TEST_REQUIRED_FAILURES": "1",
+        },
+        connect_attempts=1,
+        retry_base_delay_seconds=0,
+        connect_timeout_seconds=2,
+        healthcheck_interval_seconds=0.05,
+    )
+    registry = ToolRegistry()
+    client.register_tools(registry)
+
+    try:
+        with pytest.raises(MCPConnectionError):
+            await client.start()
+
+        for _ in range(40):
+            if registry.get("mcp__ready") is not None:
+                break
+            await asyncio.sleep(0.05)
+
+        assert client.connected is True
+        assert registry.get("mcp__ready") is not None
+    finally:
+        await client.close()

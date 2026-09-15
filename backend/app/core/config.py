@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     sandbox_runner_url: str = "http://localhost:18100"
     sandbox_runner_token: SecretStr | None = None
     sandbox_runner_timeout_seconds: float = 12
+    sandbox_dataset_volume: str = "datapilot_dataset_data"
+    sandbox_artifact_work_volume: str = "datapilot_artifact_work_data"
+    sandbox_artifact_work_root: Path = Path("data/artifact-work")
+    sandbox_artifact_max_files: int = 20
+    sandbox_artifact_max_bytes: int = 10 * 1024 * 1024
+    artifact_storage_dir: Path = Path("data/artifacts")
     postgres_query_timeout_seconds: int = 10
     postgres_max_rows: int = 1000
     dataset_restore_on_startup: bool = False
@@ -49,6 +55,12 @@ class Settings(BaseSettings):
     mcp_server_command: str | None = None
     mcp_server_args: list[str] = Field(default_factory=lambda: ["-m", "app.mcp.server"])
     mcp_startup_timeout_seconds: float = 10
+    mcp_connect_attempts: int = Field(default=3, ge=1, le=10)
+    mcp_retry_base_delay_seconds: float = Field(default=0.5, ge=0, le=30)
+    mcp_retry_max_delay_seconds: float = Field(default=5, ge=0, le=60)
+    mcp_healthcheck_interval_seconds: float = Field(default=15, ge=1, le=600)
+    mcp_tool_refresh_interval_seconds: float = Field(default=300, ge=0, le=3600)
+    mcp_call_retry_attempts: int = Field(default=1, ge=0, le=3)
     llm_provider_name: str = "openai_compatible"
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: SecretStr | None = None

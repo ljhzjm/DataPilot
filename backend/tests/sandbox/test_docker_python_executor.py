@@ -1,4 +1,6 @@
+import tempfile
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from docker import DockerClient
@@ -18,12 +20,15 @@ def docker_python_executor() -> Iterator[DockerPythonExecutor]:
     except (DockerException, ImageNotFound) as exc:
         pytest.skip(f"Docker sandbox integration environment is unavailable: {exc}")
 
-    yield DockerPythonExecutor(
-        client=client,
-        image="datapilot/sandbox:dev",
-        timeout_seconds=1,
-        output_limit_bytes=8192,
-    )
+    with tempfile.TemporaryDirectory(prefix="datapilot-artifacts-") as directory:
+        yield DockerPythonExecutor(
+            client=client,
+            image="datapilot/sandbox:dev",
+            timeout_seconds=1,
+            output_limit_bytes=8192,
+            artifact_work_volume="",
+            artifact_work_root=Path(directory),
+        )
     client.close()
 
 

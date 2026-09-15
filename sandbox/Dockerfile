@@ -9,7 +9,8 @@ RUN groupadd --gid 10001 sandbox \
     && pip install --no-cache-dir \
         matplotlib==3.10.0 \
         numpy==2.2.1 \
-        pandas==2.2.3
+        pandas==2.2.3 \
+        pyarrow==19.0.0
 
 COPY runner.py /opt/sandbox/runner.py
 

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Request, Response, status
@@ -43,7 +44,14 @@ async def ready(request: Request, response: Response) -> ReadyResponse:
 
     if get_settings().mcp_enabled:
         mcp_client = getattr(request.app.state, "mcp_client", None)
-        checks["mcp"] = "ok" if mcp_client is not None and mcp_client.connected else "error"
+        mcp_ok = False
+        if mcp_client is not None:
+            try:
+                async with asyncio.timeout(2):
+                    mcp_ok = await mcp_client.health()
+            except Exception:
+                mcp_ok = False
+        checks["mcp"] = "ok" if mcp_ok else "error"
 
     sandbox_client = getattr(request.app.state, "sandbox_client", None)
     if sandbox_client is not None:

@@ -19,7 +19,7 @@ def test_alembic_has_one_head_and_generates_initial_schema_sql() -> None:
         command.upgrade(config, "head", sql=True)
 
     sql = output.getvalue()
-    assert script.get_heads() == ["20260915_0004"]
+    assert script.get_heads() == ["20260915_0005"]
     assert "CREATE TABLE conversations" in sql
     assert "CREATE TABLE messages" in sql
     assert "CREATE TABLE agent_steps" in sql
@@ -29,3 +29,4 @@ def test_alembic_has_one_head_and_generates_initial_schema_sql() -> None:
     assert "ADD COLUMN archived_at" in sql
     assert "CREATE TABLE usage_records" in sql
     assert "ADD COLUMN trace_id" in sql
+    assert "CREATE TABLE artifacts" in sql

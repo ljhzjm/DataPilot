@@ -3,7 +3,7 @@ from collections.abc import Mapping
 import httpx
 
 from app.core.config import get_settings
-from app.sandbox.models import ExecutionResult
+from app.sandbox.models import ExecutionResult, SandboxDatasetMount
 
 
 class SandboxRunnerError(RuntimeError):
@@ -40,6 +40,7 @@ class SandboxClient:
         code: str,
         *,
         input_files: Mapping[str, str | bytes] | None = None,
+        data_mounts: list[SandboxDatasetMount] | None = None,
         timeout_seconds: float | None = None,
     ) -> ExecutionResult:
         files: dict[str, str] = {}
@@ -57,6 +58,7 @@ class SandboxClient:
                 json={
                     "code": code,
                     "input_files": files,
+                    "data_mounts": [mount.model_dump(mode="json") for mount in (data_mounts or [])],
                     "timeout_seconds": timeout_seconds,
                 },
             )

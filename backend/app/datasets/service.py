@@ -60,6 +60,22 @@ class DatasetService:
             dataset = await session.get(Dataset, dataset_id)
             return _dataset_view(dataset) if dataset is not None else None
 
+    async def resolve_tables(self, table_names: list[str]) -> list[DatasetView]:
+        if not table_names:
+            return []
+        statement = select(Dataset).where(Dataset.table_name.in_(table_names))
+        async with self._session_factory() as session:
+            datasets = list((await session.scalars(statement)).all())
+        by_name = {dataset.table_name: dataset for dataset in datasets}
+        missing = [name for name in table_names if name not in by_name]
+        unavailable = [
+            name for name in table_names if name in by_name and by_name[name].status != "ready"
+        ]
+        if missing or unavailable:
+            names = ", ".join(missing + unavailable)
+            raise ValueError(f"Datasets are not available for sandbox mounting: {names}.")
+        return [_dataset_view(by_name[name]) for name in table_names]
+
     async def delete_dataset(self, dataset_id: UUID) -> bool:
         async with self._session_factory() as session:
             dataset = await session.get(Dataset, dataset_id)

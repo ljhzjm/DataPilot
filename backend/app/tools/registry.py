@@ -1,5 +1,5 @@
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
@@ -60,6 +60,14 @@ class RegisteredTool:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class ToolRegistrationDiff:
+    added: tuple[str, ...] = ()
+    removed: tuple[str, ...] = ()
+    updated: tuple[str, ...] = ()
+    unchanged: tuple[str, ...] = ()
+
+
 def tool(
     *,
     name: str,
@@ -99,6 +107,52 @@ class ToolRegistry:
     def definitions(self) -> list[ToolDefinition]:
         return [registered_tool.definition for registered_tool in self._tools.values()]
 
+    def replace_prefix(
+        self,
+        prefix: str,
+        registered_tools: Sequence[RegisteredTool],
+    ) -> ToolRegistrationDiff:
+        if not prefix:
+            raise ValueError("Tool prefix must not be empty.")
+        incoming: dict[str, RegisteredTool] = {}
+        for registered_tool in registered_tools:
+            if not registered_tool.name.startswith(prefix):
+                raise ValueError(
+                    f"Tool '{registered_tool.name}' does not start with prefix '{prefix}'."
+                )
+            if registered_tool.name in incoming:
+                raise ValueError(f"Duplicate registered tool: {registered_tool.name}")
+            conflicting = self._tools.get(registered_tool.name)
+            if conflicting is not None and not registered_tool.name.startswith(prefix):
+                raise ValueError(f"Tool already registered: {registered_tool.name}")
+            incoming[registered_tool.name] = registered_tool
+
+        existing_names = [name for name in self._tools if name.startswith(prefix)]
+        removed = tuple(name for name in existing_names if name not in incoming)
+        added: list[str] = []
+        updated: list[str] = []
+        unchanged: list[str] = []
+
+        for name in removed:
+            del self._tools[name]
+
+        for name, registered_tool in incoming.items():
+            previous = self._tools.get(name)
+            if previous is None:
+                added.append(name)
+            elif _registered_tools_equal(previous, registered_tool):
+                unchanged.append(name)
+            else:
+                updated.append(name)
+            self._tools[name] = registered_tool
+
+        return ToolRegistrationDiff(
+            added=tuple(added),
+            removed=removed,
+            updated=tuple(updated),
+            unchanged=tuple(unchanged),
+        )
+
 
 def _build_input_model(func: ToolHandler, tool_name: str) -> type[BaseModel]:
     signature = inspect.signature(func)
@@ -132,3 +186,10 @@ def _build_input_model(func: ToolHandler, tool_name: str) -> type[BaseModel]:
         **fields,
     )
     return cast(type[BaseModel], model)
+
+
+def _registered_tools_equal(
+    left: RegisteredTool,
+    right: RegisteredTool,
+) -> bool:
+    return left.definition == right.definition and left.parallel_safe == right.parallel_safe

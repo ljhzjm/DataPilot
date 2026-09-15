@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import get_settings
-from app.sandbox.models import ExecutionResult
+from app.sandbox.models import ExecutionResult, SandboxDatasetMount
 from app.sandbox.python_executor import DockerPythonExecutor
 from app.sandbox.service import PythonExecutor
 
@@ -13,6 +13,7 @@ from app.sandbox.service import PythonExecutor
 class SandboxExecuteRequest(BaseModel):
     code: str = Field(min_length=1)
     input_files: dict[str, str] = Field(default_factory=dict)
+    data_mounts: list[SandboxDatasetMount] = Field(default_factory=list)
     timeout_seconds: float | None = Field(default=None, gt=0, le=60)
 
     model_config = ConfigDict(extra="forbid")
@@ -61,6 +62,7 @@ def create_runner_app(
         return await execution_backend.execute(
             payload.code,
             input_files=payload.input_files,
+            data_mounts=payload.data_mounts,
             timeout_seconds=payload.timeout_seconds,
         )
 

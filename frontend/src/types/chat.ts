@@ -76,6 +76,15 @@ export interface ChartArtifact {
   spec: ChartSpec
 }
 
+export interface ArtifactView {
+  id: string
+  filename: string
+  mime_type: string
+  size: number
+  url: string
+  created_at: string
+}
+
 export interface StreamEvent {
   id?: string
   event: 'start' | 'step' | 'text' | 'text_reset' | 'done' | 'error' | 'aborted'

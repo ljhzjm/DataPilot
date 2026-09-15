@@ -2,7 +2,12 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from app.sandbox.duckdb_executor import DuckDBReadOnlyExecutor
-from app.sandbox.models import ExecutionResult, SandboxExecutionKind, SandboxRequest
+from app.sandbox.models import (
+    ExecutionResult,
+    SandboxDatasetMount,
+    SandboxExecutionKind,
+    SandboxRequest,
+)
 from app.sandbox.postgres_executor import PostgresReadOnlyExecutor
 
 
@@ -12,6 +17,7 @@ class PythonExecutor(Protocol):
         code: str,
         *,
         input_files: Mapping[str, str | bytes] | None = None,
+        data_mounts: list[SandboxDatasetMount] | None = None,
         timeout_seconds: float | None = None,
     ) -> ExecutionResult: ...
 
@@ -35,6 +41,7 @@ class SandboxService:
             return await self._python_executor.execute(
                 request.code or "",
                 input_files=request.input_files,
+                data_mounts=request.data_mounts,
                 timeout_seconds=request.timeout_seconds,
             )
 

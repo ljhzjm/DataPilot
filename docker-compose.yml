@@ -54,6 +54,9 @@ services:
       SANDBOX_MAX_CODE_LINES: "300"
       SANDBOX_MAX_CODE_CHARS: "80000"
       SANDBOX_MAX_INPUT_BYTES: "48000"
+      ARTIFACT_STORAGE_DIR: "/app/data/artifacts"
+      SANDBOX_ARTIFACT_MAX_FILES: "20"
+      SANDBOX_ARTIFACT_MAX_BYTES: "10485760"
       POSTGRES_QUERY_TIMEOUT_SECONDS: "10"
       POSTGRES_MAX_ROWS: "1000"
       DATASET_RESTORE_ON_STARTUP: "true"
@@ -71,6 +74,12 @@ services:
       MCP_ENABLED: "true"
       MCP_SERVER_ARGS: '["-m","app.mcp.server"]'
       MCP_STARTUP_TIMEOUT_SECONDS: "10"
+      MCP_CONNECT_ATTEMPTS: "${MCP_CONNECT_ATTEMPTS:-3}"
+      MCP_RETRY_BASE_DELAY_SECONDS: "${MCP_RETRY_BASE_DELAY_SECONDS:-0.5}"
+      MCP_RETRY_MAX_DELAY_SECONDS: "${MCP_RETRY_MAX_DELAY_SECONDS:-5}"
+      MCP_HEALTHCHECK_INTERVAL_SECONDS: "${MCP_HEALTHCHECK_INTERVAL_SECONDS:-15}"
+      MCP_TOOL_REFRESH_INTERVAL_SECONDS: "${MCP_TOOL_REFRESH_INTERVAL_SECONDS:-300}"
+      MCP_CALL_RETRY_ATTEMPTS: "${MCP_CALL_RETRY_ATTEMPTS:-1}"
       LLM_PROVIDER_NAME: "${LLM_PROVIDER_NAME:-openai_compatible}"
       LLM_BASE_URL: "${LLM_BASE_URL:-https://api.openai.com/v1}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
@@ -94,6 +103,7 @@ services:
     volumes:
       - ./backend:/app
       - dataset_data:/app/data/uploads
+      - artifact_data:/app/data/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,12 +166,18 @@ services:
       SANDBOX_MAX_CODE_LINES: "300"
       SANDBOX_MAX_CODE_CHARS: "80000"
       SANDBOX_MAX_INPUT_BYTES: "48000"
+      SANDBOX_DATASET_VOLUME: "datapilot_dataset_data"
+      SANDBOX_ARTIFACT_WORK_VOLUME: "datapilot_artifact_work_data"
+      SANDBOX_ARTIFACT_WORK_ROOT: "/artifact-work"
+      SANDBOX_ARTIFACT_MAX_FILES: "20"
+      SANDBOX_ARTIFACT_MAX_BYTES: "10485760"
       SANDBOX_RUNNER_TOKEN: "${SANDBOX_RUNNER_TOKEN:-datapilot-dev-sandbox-token}"
       PYTHONDONTWRITEBYTECODE: "1"
       HOME: "/tmp"
       UV_PROJECT_ENVIRONMENT: /opt/venv
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - artifact_work_data:/artifact-work
     networks:
       - sandbox_control
     read_only: true
@@ -233,6 +249,8 @@ volumes:
   postgres_data:
   redis_data:
   dataset_data:
+  artifact_data:
+  artifact_work_data:
 
 networks:
   sandbox_control:
