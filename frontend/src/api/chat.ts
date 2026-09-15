@@ -1,6 +1,6 @@
 import type {
   ConversationDetail,
-  ConversationSummary,
+  ConversationPage,
   StreamEvent,
 } from '../types/chat'
 
@@ -17,8 +17,22 @@ async function apiRequest<T>(input: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export function listConversations(): Promise<ConversationSummary[]> {
-  return apiRequest<ConversationSummary[]>('/api/conversations')
+export function listConversations(options?: {
+  limit?: number
+  offset?: number
+  query?: string
+  includeArchived?: boolean
+}): Promise<ConversationPage> {
+  const params = new URLSearchParams()
+  params.set('limit', String(options?.limit ?? 20))
+  params.set('offset', String(options?.offset ?? 0))
+  if (options?.query) {
+    params.set('query', options.query)
+  }
+  if (options?.includeArchived) {
+    params.set('include_archived', 'true')
+  }
+  return apiRequest<ConversationPage>(`/api/conversations?${params.toString()}`)
 }
 
 export function createConversation(): Promise<ConversationDetail> {
@@ -29,6 +43,26 @@ export function createConversation(): Promise<ConversationDetail> {
 
 export function getConversation(conversationId: string): Promise<ConversationDetail> {
   return apiRequest<ConversationDetail>(`/api/conversations/${conversationId}`)
+}
+
+export async function archiveConversation(
+  conversationId: string,
+  archived: boolean,
+): Promise<void> {
+  const action = archived ? 'archive' : 'unarchive'
+  await apiRequest<Record<string, boolean>>(
+    `/api/conversations/${conversationId}/${action}`,
+    { method: 'POST' },
+  )
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const response = await fetch(`/api/conversations/${conversationId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    throw new Error(`删除会话失败：${response.status}`)
+  }
 }
 
 export async function streamMessage(

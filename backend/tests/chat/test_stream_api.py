@@ -15,6 +15,7 @@ from app.chat.events import InMemoryEventBroker
 from app.chat.runtime import RuntimeEvent, RuntimeEventType
 from app.chat.schemas import (
     ConversationDetail,
+    ConversationPage,
     ConversationSummary,
     MessageRole,
     MessageStatus,
@@ -40,8 +41,16 @@ class FakeStore:
         self.conversations[conversation.id] = conversation
         return conversation
 
-    async def list_conversations(self) -> list[ConversationSummary]:
-        return [
+    async def list_conversations(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        query: str | None = None,
+        include_archived: bool = False,
+    ) -> ConversationPage:
+        del query, include_archived
+        items = [
             ConversationSummary(
                 id=conversation.id,
                 title=conversation.title,
@@ -51,6 +60,12 @@ class FakeStore:
             )
             for conversation in self.conversations.values()
         ]
+        return ConversationPage(
+            items=items[offset : offset + limit],
+            total=len(items),
+            limit=limit,
+            offset=offset,
+        )
 
     async def get_conversation(self, conversation_id: UUID) -> ConversationDetail | None:
         return self.conversations.get(conversation_id)
@@ -126,6 +141,21 @@ class FakeStore:
                 if message.id == message_id:
                     return message
         return None
+
+    async def archive_conversation(
+        self,
+        conversation_id: UUID,
+        *,
+        archived: bool,
+    ) -> bool:
+        conversation = self.conversations.get(conversation_id)
+        if conversation is None:
+            return False
+        conversation.updated_at = datetime.now(UTC)
+        return True
+
+    async def delete_conversation(self, conversation_id: UUID) -> bool:
+        return self.conversations.pop(conversation_id, None) is not None
 
 
 class FakeRuntime:

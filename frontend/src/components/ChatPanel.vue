@@ -3,7 +3,15 @@ Vue 概念：组件通过 Pinia store 共享状态，模板中的事件处理函
 此处把“会话选择、消息列表、输入框”组成左栏，页面本身不直接请求接口。
 -->
 <script setup lang="ts">
-import { Database, History, Plus } from '@lucide/vue'
+import {
+  Archive,
+  ArchiveRestore,
+  Database,
+  History,
+  Plus,
+  Trash2,
+} from '@lucide/vue'
+import { ElMessageBox } from 'element-plus'
 import { ref } from 'vue'
 
 import { useChatStore } from '../stores/chat'
@@ -23,6 +31,19 @@ async function chooseConversation(conversationId: string): Promise<void> {
 async function createConversation(): Promise<void> {
   historyOpen.value = false
   await store.createNewConversation()
+}
+
+async function toggleArchive(conversationId: string, archived: boolean): Promise<void> {
+  await store.archiveConversation(conversationId, archived)
+}
+
+async function deleteConversation(conversationId: string): Promise<void> {
+  await ElMessageBox.confirm('删除后无法恢复，是否继续？', '删除会话', {
+    type: 'warning',
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+  })
+  await store.removeConversation(conversationId)
 }
 </script>
 
@@ -83,17 +104,69 @@ async function createConversation(): Promise<void> {
     />
 
     <el-drawer v-model="historyOpen" title="历史会话" size="320px">
-      <button
-        v-for="conversation in store.conversations"
-        :key="conversation.id"
-        type="button"
-        class="history-item"
-        :class="{ active: conversation.id === store.currentConversationId }"
-        @click="chooseConversation(conversation.id)"
+      <div class="history-tools">
+        <el-input
+          clearable
+          placeholder="搜索会话"
+          @input="store.searchConversations"
+          @clear="store.searchConversations('')"
+        />
+        <el-checkbox
+          :model-value="store.includeArchived"
+          @change="store.setIncludeArchived(Boolean($event))"
+        >
+          显示归档
+        </el-checkbox>
+      </div>
+
+      <div v-loading="store.conversationLoading" class="history-list">
+        <article
+          v-for="conversation in store.conversations"
+          :key="conversation.id"
+          class="history-item"
+          :class="{ active: conversation.id === store.currentConversationId }"
+        >
+          <button
+            type="button"
+            class="history-main"
+            @click="chooseConversation(conversation.id)"
+          >
+            <strong>{{ conversation.title }}</strong>
+            <span>
+              {{ conversation.message_count }} 条消息
+              <template v-if="conversation.archived_at"> · 已归档</template>
+            </span>
+          </button>
+          <div class="history-actions">
+            <el-tooltip
+              :content="conversation.archived_at ? '恢复会话' : '归档会话'"
+              placement="left"
+            >
+              <el-button
+                text
+                :icon="conversation.archived_at ? ArchiveRestore : Archive"
+                @click="toggleArchive(conversation.id, !conversation.archived_at)"
+              />
+            </el-tooltip>
+            <el-tooltip content="删除会话" placement="left">
+              <el-button
+                text
+                :icon="Trash2"
+                @click="deleteConversation(conversation.id)"
+              />
+            </el-tooltip>
+          </div>
+        </article>
+      </div>
+
+      <el-button
+        v-if="store.conversations.length < store.conversationTotal"
+        class="history-more"
+        text
+        @click="store.loadMoreConversations"
       >
-        <strong>{{ conversation.title }}</strong>
-        <span>{{ conversation.message_count }} 条消息</span>
-      </button>
+        加载更多
+      </el-button>
     </el-drawer>
     <DatasetDrawer v-model="datasetOpen" />
   </section>
@@ -141,15 +214,14 @@ async function createConversation(): Promise<void> {
 }
 
 .history-item {
-  width: 100%;
   display: grid;
-  gap: 4px;
-  padding: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  text-align: left;
-  cursor: pointer;
 }
 
 .history-item:hover,
@@ -166,5 +238,36 @@ async function createConversation(): Promise<void> {
 .history-item span {
   color: var(--muted-color);
   font-size: 12px;
+}
+
+.history-tools {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.history-list {
+  min-height: 100px;
+}
+
+.history-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+}
+
+.history-more {
+  width: 100%;
+  margin-top: 12px;
 }
 </style>

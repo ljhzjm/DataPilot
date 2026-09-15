@@ -45,6 +45,14 @@ export interface ConversationSummary {
   message_count: number
   created_at: string
   updated_at: string
+  archived_at: string | null
+}
+
+export interface ConversationPage {
+  items: ConversationSummary[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface ConversationDetail {

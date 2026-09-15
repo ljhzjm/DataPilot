@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     dataset_restore_on_startup: bool = False
     chat_runtime_mode: Literal["preview", "agent", "disabled"] = "disabled"
     chat_history_limit: int = 20
+    chat_history_char_budget: int = 12_000
     agent_max_steps: int = 10
     agent_max_total_tokens: int = 49_152
     agent_max_tool_calls_per_step: int = 3

@@ -6,11 +6,15 @@ from app.chat.events import EventBroker
 from app.chat.runtime import ChatRuntime
 from app.chat.service import ConversationService
 from app.chat.tasks import ChatTaskManager
+from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 
 
 def get_conversation_service() -> ConversationService:
-    return ConversationService(AsyncSessionLocal)
+    return ConversationService(
+        AsyncSessionLocal,
+        history_char_budget=get_settings().chat_history_char_budget,
+    )
 
 
 def get_chat_runtime(request: Request) -> ChatRuntime:

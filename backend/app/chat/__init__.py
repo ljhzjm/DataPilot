@@ -11,6 +11,7 @@ from app.chat.runtime import (
 )
 from app.chat.schemas import (
     ConversationDetail,
+    ConversationPage,
     ConversationSummary,
     MessageCreate,
     MessageView,
@@ -21,6 +22,7 @@ __all__ = [
     "AgentChatRuntime",
     "ChatRuntime",
     "ConversationDetail",
+    "ConversationPage",
     "ConversationService",
     "ConversationStore",
     "ConversationSummary",

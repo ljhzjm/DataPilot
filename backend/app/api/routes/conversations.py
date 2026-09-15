@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.api.dependencies import (
@@ -16,7 +16,7 @@ from app.chat.events import BrokerEvent, EventBroker
 from app.chat.runtime import ChatRuntime
 from app.chat.schemas import (
     ConversationDetail,
-    ConversationSummary,
+    ConversationPage,
     MessageCreate,
     MessageView,
 )
@@ -36,11 +36,20 @@ async def create_conversation(
     return await store.create_conversation()
 
 
-@router.get("", response_model=list[ConversationSummary])
+@router.get("", response_model=ConversationPage)
 async def list_conversations(
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
-) -> list[ConversationSummary]:
-    return await store.list_conversations()
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    query: Annotated[str | None, Query(max_length=100)] = None,
+    include_archived: bool = False,
+) -> ConversationPage:
+    return await store.list_conversations(
+        limit=limit,
+        offset=offset,
+        query=query,
+        include_archived=include_archived,
+    )
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
@@ -190,6 +199,47 @@ async def abort_message(
         )
         return {"aborted": True}
     return {"aborted": False}
+
+
+@router.post(
+    "/{conversation_id}/archive",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def archive_conversation(
+    conversation_id: UUID,
+    store: Annotated[ConversationStore, Depends(get_conversation_service)],
+) -> dict[str, bool]:
+    archived = await store.archive_conversation(conversation_id, archived=True)
+    if not archived:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    return {"archived": True}
+
+
+@router.post(
+    "/{conversation_id}/unarchive",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def unarchive_conversation(
+    conversation_id: UUID,
+    store: Annotated[ConversationStore, Depends(get_conversation_service)],
+) -> dict[str, bool]:
+    archived = await store.archive_conversation(conversation_id, archived=False)
+    if not archived:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    return {"archived": False}
+
+
+@router.delete(
+    "/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_conversation(
+    conversation_id: UUID,
+    store: Annotated[ConversationStore, Depends(get_conversation_service)],
+) -> None:
+    deleted = await store.delete_conversation(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
 
 
 def _encode_broker_event(event: BrokerEvent) -> str:

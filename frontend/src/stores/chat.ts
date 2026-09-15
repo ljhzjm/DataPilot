@@ -3,7 +3,9 @@ import { computed, ref } from 'vue'
 
 import {
   abortMessage,
+  archiveConversation as archiveConversationRequest,
   createConversation,
+  deleteConversation as deleteConversationRequest,
   getConversation,
   listConversations,
   streamMessage,
@@ -20,6 +22,11 @@ function nowIso(): string {
 
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref<ConversationSummary[]>([])
+  const conversationTotal = ref(0)
+  const conversationQuery = ref('')
+  const includeArchived = ref(false)
+  const conversationLoading = ref(false)
+  const pageSize = 20
   const currentConversationId = ref<string | null>(null)
   const messages = ref<ChatMessage[]>([])
   const isStreaming = ref(false)
@@ -43,7 +50,7 @@ export const useChatStore = defineStore('chat', () => {
   async function initialize(): Promise<void> {
     error.value = null
     try {
-      conversations.value = await listConversations()
+      await loadConversations()
       if (conversations.value.length) {
         await selectConversation(conversations.value[0].id)
       } else {
@@ -54,8 +61,39 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function loadConversations(): Promise<void> {
-    conversations.value = await listConversations()
+  async function loadConversations(reset = true): Promise<void> {
+    conversationLoading.value = true
+    try {
+      const page = await listConversations({
+        limit: pageSize,
+        offset: reset ? 0 : conversations.value.length,
+        query: conversationQuery.value.trim() || undefined,
+        includeArchived: includeArchived.value,
+      })
+      conversations.value = reset
+        ? page.items
+        : [...conversations.value, ...page.items]
+      conversationTotal.value = page.total
+    } finally {
+      conversationLoading.value = false
+    }
+  }
+
+  async function loadMoreConversations(): Promise<void> {
+    if (conversations.value.length >= conversationTotal.value) {
+      return
+    }
+    await loadConversations(false)
+  }
+
+  async function searchConversations(query: string): Promise<void> {
+    conversationQuery.value = query
+    await loadConversations(true)
+  }
+
+  async function setIncludeArchived(value: boolean): Promise<void> {
+    includeArchived.value = value
+    await loadConversations(true)
   }
 
   async function createNewConversation(): Promise<void> {
@@ -205,8 +243,47 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
   }
 
+  async function archiveConversation(
+    conversationId: string,
+    archived: boolean,
+  ): Promise<void> {
+    await archiveConversationRequest(conversationId, archived)
+    await loadConversations(true)
+    if (
+      archived
+      && !includeArchived.value
+      && currentConversationId.value === conversationId
+    ) {
+      if (conversations.value.length) {
+        await selectConversation(conversations.value[0].id)
+      } else {
+        await createNewConversation()
+      }
+    }
+  }
+
+  async function removeConversation(conversationId: string): Promise<void> {
+    await deleteConversationRequest(conversationId)
+    if (currentConversationId.value === conversationId) {
+      currentConversationId.value = null
+      messages.value = []
+    }
+    await loadConversations(true)
+    if (!currentConversationId.value) {
+      if (conversations.value.length) {
+        await selectConversation(conversations.value[0].id)
+      } else {
+        await createNewConversation()
+      }
+    }
+  }
+
   return {
     conversations,
+    conversationTotal,
+    conversationQuery,
+    includeArchived,
+    conversationLoading,
     currentConversationId,
     messages,
     currentSteps,
@@ -214,10 +291,15 @@ export const useChatStore = defineStore('chat', () => {
     isStreaming,
     error,
     initialize,
+    loadMoreConversations,
+    searchConversations,
+    setIncludeArchived,
     createNewConversation,
     selectConversation,
     sendMessage,
     stopStreaming,
+    archiveConversation,
+    removeConversation,
     clearError,
   }
 })

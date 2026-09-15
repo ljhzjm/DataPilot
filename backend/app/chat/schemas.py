@@ -32,6 +32,14 @@ class ConversationSummary(BaseModel):
     message_count: int = Field(ge=0)
     created_at: datetime
     updated_at: datetime
+    archived_at: datetime | None = None
+
+
+class ConversationPage(BaseModel):
+    items: list[ConversationSummary] = Field(default_factory=list)
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
 
 
 class ConversationDetail(BaseModel):

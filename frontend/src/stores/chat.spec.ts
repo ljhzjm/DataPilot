@@ -10,7 +10,12 @@ type StreamHandler = (event: {
 let releaseStream: (() => void) | undefined
 
 vi.mock('../api/chat', () => ({
-  listConversations: vi.fn().mockResolvedValue([]),
+  listConversations: vi.fn().mockResolvedValue({
+    items: [],
+    total: 0,
+    limit: 20,
+    offset: 0,
+  }),
   createConversation: vi.fn().mockResolvedValue({
     id: 'conversation-1',
     title: '新会话',
@@ -20,6 +25,8 @@ vi.mock('../api/chat', () => ({
   }),
   getConversation: vi.fn(),
   abortMessage: vi.fn().mockResolvedValue(undefined),
+  archiveConversation: vi.fn().mockResolvedValue(undefined),
+  deleteConversation: vi.fn().mockResolvedValue(undefined),
   streamMessage: vi.fn(
     async (
       _conversationId: string,
@@ -75,4 +82,3 @@ describe('chat store streaming', () => {
     expect(store.isStreaming).toBe(false)
   })
 })
-
