@@ -125,10 +125,11 @@ uv run python -m app.evaluation
 真实模型评测：
 
 ```powershell
-uv run python -m app.evaluation --live
+docker compose exec backend python -m app.evaluation --live
 ```
 
-未配置 `LLM_API_KEY` 时真实模型评测会以退出码 `2` 结束。
+容器方式会读取 Compose 注入的 `LLM_*` 配置。未配置 `LLM_API_KEY` 时真实模型评测
+会以退出码 `2` 结束。
 
 ## 认证与工作空间
 
