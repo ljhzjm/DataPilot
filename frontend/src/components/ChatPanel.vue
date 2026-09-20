@@ -9,6 +9,7 @@ import {
   Database,
   Download,
   History,
+  LogOut,
   Plus,
   Gauge,
   Trash2,
@@ -18,6 +19,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { computed, defineAsyncComponent, ref } from 'vue'
 
 import { useChatStore } from '../stores/chat'
+import { useAuthStore } from '../stores/auth'
 import {
   createConversationMarkdown,
   downloadTextFile,
@@ -28,6 +30,7 @@ import MessageComposer from './MessageComposer.vue'
 import MessageList from './MessageList.vue'
 
 const store = useChatStore()
+const auth = useAuthStore()
 const DatasetDrawer = defineAsyncComponent(() => import('./DatasetDrawer.vue'))
 const ObservabilityDrawer = defineAsyncComponent(
   () => import('./ObservabilityDrawer.vue'),
@@ -73,13 +76,18 @@ function exportConversation(): void {
     'text/markdown;charset=utf-8',
   )
 }
+
+async function logout(): Promise<void> {
+  await auth.logout()
+  window.location.assign('/login')
+}
 </script>
 
 <template>
   <section class="chat-panel">
     <header class="panel-header">
       <div>
-        <span class="panel-kicker">会话</span>
+        <span class="panel-kicker">{{ auth.workspace?.name || '会话' }}</span>
         <strong>数据分析对话</strong>
       </div>
       <div class="panel-actions">
@@ -123,6 +131,14 @@ function exportConversation(): void {
             circle
             aria-label="新建会话"
             @click="createConversation"
+          />
+        </el-tooltip>
+        <el-tooltip content="退出登录" placement="bottom">
+          <el-button
+            :icon="LogOut"
+            circle
+            aria-label="退出登录"
+            @click="logout"
           />
         </el-tooltip>
       </div>

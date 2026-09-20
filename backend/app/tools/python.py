@@ -1,8 +1,10 @@
 from typing import Annotated, Any, Protocol
+from uuid import UUID
 
 from pydantic import Field
 
 from app.artifacts.service import ArtifactStore
+from app.core.context import require_workspace_id
 from app.datasets.schemas import DatasetView
 from app.sandbox.models import (
     ExecutionResult,
@@ -17,7 +19,11 @@ _MAX_DATASET_MOUNTS = 5
 
 
 class DatasetResolver(Protocol):
-    async def resolve_tables(self, table_names: list[str]) -> list[DatasetView]: ...
+    async def resolve_tables(
+        self,
+        workspace_id: UUID,
+        table_names: list[str],
+    ) -> list[DatasetView]: ...
 
 
 class SandboxExecutor(Protocol):
@@ -74,7 +80,8 @@ def build_run_python_tool(
         if len(set(datasets)) != len(datasets):
             raise ValueError("Dataset names must be unique.")
 
-        resolved = await dataset_service.resolve_tables(datasets)
+        workspace_id = require_workspace_id()
+        resolved = await dataset_service.resolve_tables(workspace_id, datasets)
         mounts = [
             SandboxDatasetMount(
                 dataset_id=dataset.id,
@@ -89,7 +96,7 @@ def build_run_python_tool(
                 data_mounts=mounts,
             )
         )
-        artifacts = await artifact_store.persist(result.artifacts)
+        artifacts = await artifact_store.persist(workspace_id, result.artifacts)
         return {
             "ok": result.ok,
             "stdout": result.stdout,

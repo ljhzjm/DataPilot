@@ -19,10 +19,15 @@ from app.db.models import AgentStepRecord, Conversation, Message, utc_now
 
 
 class ConversationStore(Protocol):
-    async def create_conversation(self, title: str = "新会话") -> ConversationDetail: ...
+    async def create_conversation(
+        self,
+        workspace_id: UUID,
+        title: str = "新会话",
+    ) -> ConversationDetail: ...
 
     async def list_conversations(
         self,
+        workspace_id: UUID,
         *,
         limit: int = 20,
         offset: int = 0,
@@ -30,10 +35,15 @@ class ConversationStore(Protocol):
         include_archived: bool = False,
     ) -> ConversationPage: ...
 
-    async def get_conversation(self, conversation_id: UUID) -> ConversationDetail | None: ...
+    async def get_conversation(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+    ) -> ConversationDetail | None: ...
 
     async def append_message(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         role: MessageRole,
@@ -46,6 +56,7 @@ class ConversationStore(Protocol):
 
     async def complete_assistant_message(
         self,
+        workspace_id: UUID,
         message_id: UUID,
         *,
         content: str | None,
@@ -55,6 +66,7 @@ class ConversationStore(Protocol):
 
     async def get_history(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         limit: int,
@@ -62,20 +74,30 @@ class ConversationStore(Protocol):
 
     async def get_assistant_by_request_id(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         request_id: UUID,
     ) -> MessageView | None: ...
 
-    async def get_message(self, message_id: UUID) -> MessageView | None: ...
+    async def get_message(
+        self,
+        workspace_id: UUID,
+        message_id: UUID,
+    ) -> MessageView | None: ...
 
     async def archive_conversation(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         archived: bool,
     ) -> bool: ...
 
-    async def delete_conversation(self, conversation_id: UUID) -> bool: ...
+    async def delete_conversation(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+    ) -> bool: ...
 
 
 class ConversationService:
@@ -88,9 +110,16 @@ class ConversationService:
         self._session_factory = session_factory
         self._history_char_budget = history_char_budget
 
-    async def create_conversation(self, title: str = "新会话") -> ConversationDetail:
+    async def create_conversation(
+        self,
+        workspace_id: UUID,
+        title: str = "新会话",
+    ) -> ConversationDetail:
         async with self._session_factory() as session:
-            conversation = Conversation(title=title)
+            conversation = Conversation(
+                workspace_id=workspace_id,
+                title=title,
+            )
             session.add(conversation)
             await session.commit()
             await session.refresh(conversation)
@@ -98,13 +127,14 @@ class ConversationService:
 
     async def list_conversations(
         self,
+        workspace_id: UUID,
         *,
         limit: int = 20,
         offset: int = 0,
         query: str | None = None,
         include_archived: bool = False,
     ) -> ConversationPage:
-        filters = []
+        filters = [Conversation.workspace_id == workspace_id]
         if not include_archived:
             filters.append(Conversation.archived_at.is_(None))
         if query:
@@ -144,11 +174,18 @@ class ConversationService:
             offset=offset,
         )
 
-    async def get_conversation(self, conversation_id: UUID) -> ConversationDetail | None:
+    async def get_conversation(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+    ) -> ConversationDetail | None:
         statement = (
             select(Conversation)
             .options(selectinload(Conversation.messages).selectinload(Message.steps))
-            .where(Conversation.id == conversation_id)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.workspace_id == workspace_id,
+            )
         )
         async with self._session_factory() as session:
             conversation = (await session.execute(statement)).scalar_one_or_none()
@@ -159,6 +196,7 @@ class ConversationService:
 
     async def append_message(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         role: MessageRole,
@@ -169,13 +207,21 @@ class ConversationService:
         trace_id: UUID | None = None,
     ) -> MessageView:
         async with self._session_factory() as session:
-            conversation = await session.get(Conversation, conversation_id)
+            conversation = await session.scalar(
+                select(Conversation).where(
+                    Conversation.id == conversation_id,
+                    Conversation.workspace_id == workspace_id,
+                )
+            )
             if conversation is None:
                 raise KeyError(f"Conversation not found: {conversation_id}")
 
             allocated_sequence = await session.scalar(
                 update(Conversation)
-                .where(Conversation.id == conversation_id)
+                .where(
+                    Conversation.id == conversation_id,
+                    Conversation.workspace_id == workspace_id,
+                )
                 .values(
                     next_sequence=Conversation.next_sequence + 1,
                     updated_at=utc_now(),
@@ -213,6 +259,7 @@ class ConversationService:
 
     async def complete_assistant_message(
         self,
+        workspace_id: UUID,
         message_id: UUID,
         *,
         content: str | None,
@@ -224,7 +271,11 @@ class ConversationService:
                 await session.execute(
                     select(Message)
                     .options(selectinload(Message.steps))
-                    .where(Message.id == message_id)
+                    .join(Conversation)
+                    .where(
+                        Message.id == message_id,
+                        Conversation.workspace_id == workspace_id,
+                    )
                 )
             ).scalar_one_or_none()
             if message is None:
@@ -246,7 +297,12 @@ class ConversationService:
                     )
                 )
 
-            conversation = await session.get(Conversation, message.conversation_id)
+            conversation = await session.scalar(
+                select(Conversation).where(
+                    Conversation.id == message.conversation_id,
+                    Conversation.workspace_id == workspace_id,
+                )
+            )
             if conversation is not None:
                 conversation.updated_at = utc_now()
             await session.commit()
@@ -254,11 +310,12 @@ class ConversationService:
 
     async def get_history(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         limit: int,
     ) -> list[ChatMessage]:
-        conversation = await self.get_conversation(conversation_id)
+        conversation = await self.get_conversation(workspace_id, conversation_id)
         if conversation is None:
             return []
 
@@ -282,12 +339,18 @@ class ConversationService:
 
     async def archive_conversation(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         archived: bool,
     ) -> bool:
         async with self._session_factory() as session:
-            conversation = await session.get(Conversation, conversation_id)
+            conversation = await session.scalar(
+                select(Conversation).where(
+                    Conversation.id == conversation_id,
+                    Conversation.workspace_id == workspace_id,
+                )
+            )
             if conversation is None:
                 return False
             conversation.archived_at = utc_now() if archived else None
@@ -295,9 +358,18 @@ class ConversationService:
             await session.commit()
             return True
 
-    async def delete_conversation(self, conversation_id: UUID) -> bool:
+    async def delete_conversation(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+    ) -> bool:
         async with self._session_factory() as session:
-            conversation = await session.get(Conversation, conversation_id)
+            conversation = await session.scalar(
+                select(Conversation).where(
+                    Conversation.id == conversation_id,
+                    Conversation.workspace_id == workspace_id,
+                )
+            )
             if conversation is None:
                 return False
             await session.delete(conversation)
@@ -306,25 +378,38 @@ class ConversationService:
 
     async def get_assistant_by_request_id(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         request_id: UUID,
     ) -> MessageView | None:
         statement = (
             select(Message)
             .options(selectinload(Message.steps))
+            .join(Conversation)
             .where(
                 Message.conversation_id == conversation_id,
                 Message.role == "assistant",
                 Message.request_id == request_id,
+                Conversation.workspace_id == workspace_id,
             )
         )
         async with self._session_factory() as session:
             message = (await session.execute(statement)).scalar_one_or_none()
             return _message_view(message) if message is not None else None
 
-    async def get_message(self, message_id: UUID) -> MessageView | None:
+    async def get_message(
+        self,
+        workspace_id: UUID,
+        message_id: UUID,
+    ) -> MessageView | None:
         statement = (
-            select(Message).options(selectinload(Message.steps)).where(Message.id == message_id)
+            select(Message)
+            .options(selectinload(Message.steps))
+            .join(Conversation)
+            .where(
+                Message.id == message_id,
+                Conversation.workspace_id == workspace_id,
+            )
         )
         async with self._session_factory() as session:
             message = (await session.execute(statement)).scalar_one_or_none()

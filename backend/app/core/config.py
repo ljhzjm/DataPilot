@@ -19,6 +19,13 @@ class Settings(BaseSettings):
             "http://localhost:18080",
         ]
     )
+    auth_enabled: bool = True
+    auth_session_cookie_name: str = "datapilot_session"
+    auth_session_ttl_seconds: int = Field(default=7 * 24 * 60 * 60, ge=300, le=30 * 24 * 60 * 60)
+    auth_cookie_secure: bool = False
+    auth_rate_limit_requests: int = Field(default=120, ge=1, le=100_000)
+    auth_rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+    auth_login_rate_limit_requests: int = Field(default=10, ge=1, le=10_000)
     sandbox_image: str = "datapilot/sandbox:dev"
     sandbox_timeout_seconds: int = 10
     sandbox_memory_limit: str = "512m"

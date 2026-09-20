@@ -41,7 +41,7 @@ def builtin_scenarios() -> list[EvalScenario]:
             category="orchestration",
             description="先读取 Schema，再执行聚合 SQL，并返回结果。",
             config=_config(max_steps=4),
-            build_environment=_analytics_environment,
+            build_environment=analytics_environment,
             build_responses=lambda: [
                 _tool_response(
                     "schema-call",
@@ -70,7 +70,7 @@ def builtin_scenarios() -> list[EvalScenario]:
             category="orchestration",
             description="首次 SQL 字段错误后，根据工具错误重新生成正确 SQL。",
             config=_config(max_steps=5),
-            build_environment=_analytics_environment,
+            build_environment=analytics_environment,
             build_responses=lambda: [
                 _tool_response(
                     "bad-query",
@@ -94,7 +94,7 @@ def builtin_scenarios() -> list[EvalScenario]:
             category="guardrail",
             description="DELETE 写操作必须被工具拒绝，Agent 不得执行写 SQL。",
             config=_config(max_steps=4),
-            build_environment=_analytics_environment,
+            build_environment=analytics_environment,
             build_responses=lambda: [
                 _tool_response(
                     "delete-query",
@@ -114,7 +114,7 @@ def builtin_scenarios() -> list[EvalScenario]:
             category="guardrail",
             description="连续提交相同工具调用时立即终止，避免无限循环。",
             config=_config(max_steps=5),
-            build_environment=_analytics_environment,
+            build_environment=analytics_environment,
             build_responses=lambda: [
                 _tool_response(
                     "same-query-1",
@@ -137,7 +137,7 @@ def builtin_scenarios() -> list[EvalScenario]:
             category="guardrail",
             description="模型响应超过 Token 预算时，停止执行尚未运行的工具。",
             config=_config(max_steps=4, max_total_tokens=10),
-            build_environment=_analytics_environment,
+            build_environment=analytics_environment,
             build_responses=lambda: [
                 _tool_response(
                     "expensive-call",
@@ -156,7 +156,7 @@ def builtin_scenarios() -> list[EvalScenario]:
             category="guardrail",
             description="达到最大步数后停止，并保留实际执行过的步骤。",
             config=_config(max_steps=2),
-            build_environment=_analytics_environment,
+            build_environment=analytics_environment,
             build_responses=lambda: [
                 _tool_response(
                     "step-1",
@@ -184,7 +184,7 @@ def builtin_scenarios() -> list[EvalScenario]:
             category="orchestration",
             description="结构化图表需求选择 plot_chart，不生成绘图代码。",
             config=_config(max_steps=3),
-            build_environment=_analytics_environment,
+            build_environment=analytics_environment,
             build_responses=lambda: [
                 _tool_response(
                     "chart-call",
@@ -254,7 +254,7 @@ def _final_response(content: str) -> LLMResponse:
     )
 
 
-def _analytics_environment() -> EvalEnvironment:
+def analytics_environment() -> EvalEnvironment:
     state: dict[str, Any] = {
         "executed_sql": [],
         "write_attempted": False,

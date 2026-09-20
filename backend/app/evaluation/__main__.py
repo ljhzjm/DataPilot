@@ -2,6 +2,7 @@ import argparse
 import asyncio
 from collections.abc import Sequence
 
+from app.evaluation.live import run_live_evaluation
 from app.evaluation.models import EvalReport
 from app.evaluation.runner import AgentEvaluator
 
@@ -21,10 +22,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Print the complete JSON report.",
     )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Run the optional real-model evaluation suite.",
+    )
     args = parser.parse_args(argv)
 
-    categories = {category for category in args.category} if args.category else None
-    report = asyncio.run(AgentEvaluator().run(categories=categories))
+    if args.live:
+        try:
+            report = asyncio.run(run_live_evaluation())
+        except RuntimeError as exc:
+            print(f"Live evaluation unavailable: {exc}")
+            return 2
+    else:
+        categories = {category for category in args.category} if args.category else None
+        report = asyncio.run(AgentEvaluator().run(categories=categories))
     if args.json:
         print(report.model_dump_json(indent=2))
     else:

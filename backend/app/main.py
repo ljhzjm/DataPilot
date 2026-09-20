@@ -8,6 +8,9 @@ from redis.asyncio import Redis
 
 from app.api.router import api_router
 from app.artifacts.service import ArtifactStore
+from app.auth.middleware import AuthMiddleware
+from app.auth.rate_limit import RateLimiter, RateLimitMiddleware
+from app.auth.service import AuthService
 from app.chat.events import RedisEventBroker
 from app.chat.runtime import build_chat_runtime
 from app.chat.tasks import ChatTaskManager
@@ -35,6 +38,11 @@ logging.basicConfig(
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    app.state.rate_limiter = RateLimiter(app.state.redis)
+    app.state.auth_service = AuthService(
+        AsyncSessionLocal,
+        session_ttl_seconds=settings.auth_session_ttl_seconds,
+    )
     app.state.chat_event_broker = RedisEventBroker(app.state.redis)
     app.state.chat_task_manager = ChatTaskManager()
     app.state.analytics_engine = DuckDBAnalyticsEngine()
@@ -43,7 +51,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         AsyncSessionLocal,
         settings.artifact_storage_dir,
     )
-    app.state.tool_registry = build_initial_registry(app.state.analytics_engine)
+    app.state.tool_registry = build_initial_registry(
+        app.state.analytics_engine,
+        dataset_access=app.state.dataset_service,
+    )
     sandbox_client = SandboxClient()
     app.state.sandbox_client = sandbox_client
     app.state.sandbox_service = SandboxService(
@@ -116,6 +127,8 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

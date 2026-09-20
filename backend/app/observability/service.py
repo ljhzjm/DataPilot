@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.agent.models import AgentStep
 from app.chat.schemas import MessageView
-from app.db.models import AgentStepRecord, LLMUsageRecord, Message
+from app.db.models import AgentStepRecord, Conversation, LLMUsageRecord, Message
 from app.observability.schemas import (
     ToolMetrics,
     TraceView,
@@ -28,11 +28,13 @@ class ObservabilityService:
     async def summary(
         self,
         *,
+        workspace_id: UUID,
         start_at: datetime | None = None,
         end_at: datetime | None = None,
         conversation_id: UUID | None = None,
     ) -> UsageSummary:
         filters = _usage_filters(
+            workspace_id=workspace_id,
             start_at=start_at,
             end_at=end_at,
             conversation_id=conversation_id,
@@ -70,6 +72,7 @@ class ObservabilityService:
     async def list_usage(
         self,
         *,
+        workspace_id: UUID,
         limit: int = 50,
         offset: int = 0,
         start_at: datetime | None = None,
@@ -77,6 +80,7 @@ class ObservabilityService:
         conversation_id: UUID | None = None,
     ) -> UsagePage:
         filters = _usage_filters(
+            workspace_id=workspace_id,
             start_at=start_at,
             end_at=end_at,
             conversation_id=conversation_id,
@@ -99,13 +103,26 @@ class ObservabilityService:
             offset=offset,
         )
 
-    async def get_trace(self, trace_id: UUID) -> TraceView | None:
+    async def get_trace(
+        self,
+        workspace_id: UUID,
+        trace_id: UUID,
+    ) -> TraceView | None:
         message_statement = (
-            select(Message).options(selectinload(Message.steps)).where(Message.trace_id == trace_id)
+            select(Message)
+            .options(selectinload(Message.steps))
+            .join(Conversation)
+            .where(
+                Message.trace_id == trace_id,
+                Conversation.workspace_id == workspace_id,
+            )
         )
         usage_statement = (
             select(LLMUsageRecord)
-            .where(LLMUsageRecord.trace_id == trace_id)
+            .where(
+                LLMUsageRecord.trace_id == trace_id,
+                LLMUsageRecord.workspace_id == workspace_id,
+            )
             .order_by(LLMUsageRecord.created_at)
         )
         async with self._session_factory() as session:
@@ -137,11 +154,12 @@ class ObservabilityService:
 
 def _usage_filters(
     *,
+    workspace_id: UUID,
     start_at: datetime | None,
     end_at: datetime | None,
     conversation_id: UUID | None,
 ) -> list[Any]:
-    filters: list[Any] = []
+    filters: list[Any] = [LLMUsageRecord.workspace_id == workspace_id]
     if start_at is not None:
         filters.append(LLMUsageRecord.created_at >= start_at)
     if end_at is not None:

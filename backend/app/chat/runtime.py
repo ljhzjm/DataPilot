@@ -15,6 +15,7 @@ from app.agent.models import (
     ToolExecution,
 )
 from app.core.config import Settings
+from app.core.context import reset_workspace_id, set_workspace_id
 from app.llm.router import ModelRouter
 from app.tools.registry import ToolRegistry
 
@@ -41,6 +42,7 @@ class ChatRuntime(Protocol):
         *,
         question: str,
         history: Sequence[ChatMessage],
+        workspace_id: UUID,
         trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]: ...
 
@@ -54,44 +56,49 @@ class AgentChatRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        workspace_id: UUID,
         trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        async for event in self._agent.stream(
-            question,
-            history=history,
-            system_prompt=_agent_system_prompt(),
-            trace_id=trace_id,
-        ):
-            if event.type == "text_delta" and event.text_delta:
-                yield RuntimeEvent(
-                    type=RuntimeEventType.TEXT,
-                    text=event.text_delta,
-                )
-            elif event.type == "text_reset":
-                yield RuntimeEvent(type=RuntimeEventType.TEXT_RESET)
-            elif event.type == "step" and event.step is not None:
-                yield RuntimeEvent(
-                    type=RuntimeEventType.STEP,
-                    step=event.step,
-                )
-            elif event.type == "completed" and event.result is not None:
-                if event.result.status == "completed":
+        workspace_token = set_workspace_id(workspace_id)
+        try:
+            async for event in self._agent.stream(
+                question,
+                history=history,
+                system_prompt=_agent_system_prompt(),
+                trace_id=trace_id,
+            ):
+                if event.type == "text_delta" and event.text_delta:
                     yield RuntimeEvent(
-                        type=RuntimeEventType.DONE,
-                        data={
-                            "status": event.result.status,
-                            "termination_reason": event.result.termination_reason,
-                        },
+                        type=RuntimeEventType.TEXT,
+                        text=event.text_delta,
                     )
-                else:
+                elif event.type == "text_reset":
+                    yield RuntimeEvent(type=RuntimeEventType.TEXT_RESET)
+                elif event.type == "step" and event.step is not None:
                     yield RuntimeEvent(
-                        type=RuntimeEventType.ERROR,
-                        message=(
-                            event.result.termination_reason
-                            or event.result.output
-                            or f"Agent stopped with status: {event.result.status}"
-                        ),
+                        type=RuntimeEventType.STEP,
+                        step=event.step,
                     )
+                elif event.type == "completed" and event.result is not None:
+                    if event.result.status == "completed":
+                        yield RuntimeEvent(
+                            type=RuntimeEventType.DONE,
+                            data={
+                                "status": event.result.status,
+                                "termination_reason": event.result.termination_reason,
+                            },
+                        )
+                    else:
+                        yield RuntimeEvent(
+                            type=RuntimeEventType.ERROR,
+                            message=(
+                                event.result.termination_reason
+                                or event.result.output
+                                or f"Agent stopped with status: {event.result.status}"
+                            ),
+                        )
+        finally:
+            reset_workspace_id(workspace_token)
 
 
 class UnavailableChatRuntime:
@@ -100,9 +107,10 @@ class UnavailableChatRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        workspace_id: UUID,
         trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        del question, history, trace_id
+        del question, history, workspace_id, trace_id
         yield RuntimeEvent(
             type=RuntimeEventType.ERROR,
             message="真实模型运行时尚未配置。",
@@ -117,9 +125,10 @@ class PreviewChatRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        workspace_id: UUID,
         trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        del history, trace_id
+        del history, workspace_id, trace_id
         await asyncio.sleep(0.15)
         yield RuntimeEvent(
             type=RuntimeEventType.STEP,

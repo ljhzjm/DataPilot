@@ -29,7 +29,12 @@ class FakeStore:
     def __init__(self) -> None:
         self.conversations: dict[UUID, ConversationDetail] = {}
 
-    async def create_conversation(self, title: str = "新会话") -> ConversationDetail:
+    async def create_conversation(
+        self,
+        workspace_id: UUID,
+        title: str = "新会话",
+    ) -> ConversationDetail:
+        del workspace_id
         now = datetime.now(UTC)
         conversation = ConversationDetail(
             id=uuid4(),
@@ -43,13 +48,14 @@ class FakeStore:
 
     async def list_conversations(
         self,
+        workspace_id: UUID,
         *,
         limit: int = 20,
         offset: int = 0,
         query: str | None = None,
         include_archived: bool = False,
     ) -> ConversationPage:
-        del query, include_archived
+        del workspace_id, query, include_archived
         items = [
             ConversationSummary(
                 id=conversation.id,
@@ -67,11 +73,17 @@ class FakeStore:
             offset=offset,
         )
 
-    async def get_conversation(self, conversation_id: UUID) -> ConversationDetail | None:
+    async def get_conversation(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+    ) -> ConversationDetail | None:
+        del workspace_id
         return self.conversations.get(conversation_id)
 
     async def append_message(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         role: MessageRole,
@@ -81,6 +93,7 @@ class FakeStore:
         request_id: UUID | None = None,
         trace_id: UUID | None = None,
     ) -> MessageView:
+        del workspace_id
         conversation = self.conversations[conversation_id]
         message = MessageView(
             id=uuid4(),
@@ -98,12 +111,14 @@ class FakeStore:
 
     async def complete_assistant_message(
         self,
+        workspace_id: UUID,
         message_id: UUID,
         *,
         content: str | None,
         status: MessageStatus,
         steps: Sequence[AgentStep],
     ) -> MessageView:
+        del workspace_id
         for conversation in self.conversations.values():
             for message in conversation.messages:
                 if message.id == message_id:
@@ -115,10 +130,12 @@ class FakeStore:
 
     async def get_history(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         limit: int,
     ) -> list[ChatMessage]:
+        del workspace_id
         conversation = self.conversations[conversation_id]
         return [
             ChatMessage(role=message.role, content=message.content)
@@ -128,16 +145,23 @@ class FakeStore:
 
     async def get_assistant_by_request_id(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         request_id: UUID,
     ) -> MessageView | None:
+        del workspace_id
         conversation = self.conversations[conversation_id]
         for message in conversation.messages:
             if message.role == "assistant" and message.request_id == request_id:
                 return message
         return None
 
-    async def get_message(self, message_id: UUID) -> MessageView | None:
+    async def get_message(
+        self,
+        workspace_id: UUID,
+        message_id: UUID,
+    ) -> MessageView | None:
+        del workspace_id
         for conversation in self.conversations.values():
             for message in conversation.messages:
                 if message.id == message_id:
@@ -146,17 +170,24 @@ class FakeStore:
 
     async def archive_conversation(
         self,
+        workspace_id: UUID,
         conversation_id: UUID,
         *,
         archived: bool,
     ) -> bool:
+        del workspace_id
         conversation = self.conversations.get(conversation_id)
         if conversation is None:
             return False
         conversation.updated_at = datetime.now(UTC)
         return True
 
-    async def delete_conversation(self, conversation_id: UUID) -> bool:
+    async def delete_conversation(
+        self,
+        workspace_id: UUID,
+        conversation_id: UUID,
+    ) -> bool:
+        del workspace_id
         return self.conversations.pop(conversation_id, None) is not None
 
 
@@ -166,9 +197,10 @@ class FakeRuntime:
         *,
         question: str,
         history: Sequence[ChatMessage],
+        workspace_id: UUID,
         trace_id: UUID | None = None,
     ) -> AsyncIterator[RuntimeEvent]:
-        del history, trace_id
+        del history, workspace_id, trace_id
         yield RuntimeEvent(
             type=RuntimeEventType.STEP,
             step=AgentStep(

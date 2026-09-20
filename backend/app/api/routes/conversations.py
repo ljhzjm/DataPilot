@@ -11,6 +11,7 @@ from app.api.dependencies import (
     get_chat_task_manager,
     get_conversation_service,
     get_event_broker,
+    get_workspace_id,
 )
 from app.chat.events import BrokerEvent, EventBroker
 from app.chat.runtime import ChatRuntime
@@ -32,19 +33,22 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 @router.post("", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> ConversationDetail:
-    return await store.create_conversation()
+    return await store.create_conversation(workspace_id)
 
 
 @router.get("", response_model=ConversationPage)
 async def list_conversations(
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     query: Annotated[str | None, Query(max_length=100)] = None,
     include_archived: bool = False,
 ) -> ConversationPage:
     return await store.list_conversations(
+        workspace_id,
         limit=limit,
         offset=offset,
         query=query,
@@ -56,8 +60,9 @@ async def list_conversations(
 async def get_conversation(
     conversation_id: UUID,
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> ConversationDetail:
-    conversation = await store.get_conversation(conversation_id)
+    conversation = await store.get_conversation(workspace_id, conversation_id)
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
     return conversation
@@ -69,11 +74,12 @@ async def stream_message(
     payload: MessageCreate,
     request: Request,
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
     runtime: Annotated[ChatRuntime, Depends(get_chat_runtime)],
     broker: Annotated[EventBroker, Depends(get_event_broker)],
     task_manager: Annotated[ChatTaskManager, Depends(get_chat_task_manager)],
 ) -> StreamingResponse:
-    conversation = await store.get_conversation(conversation_id)
+    conversation = await store.get_conversation(workspace_id, conversation_id)
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
 
@@ -81,21 +87,25 @@ async def stream_message(
     request_id = payload.client_request_id or uuid4()
     trace_id = uuid4()
     assistant_message = await store.get_assistant_by_request_id(
+        workspace_id,
         conversation_id,
         request_id,
     )
 
     if assistant_message is None:
         history = await store.get_history(
+            workspace_id,
             conversation_id,
             limit=settings.chat_history_limit,
         )
         await store.append_message(
+            workspace_id,
             conversation_id,
             role="user",
             content=payload.content,
         )
         assistant_message = await store.append_message(
+            workspace_id,
             conversation_id,
             role="assistant",
             content="",
@@ -108,6 +118,7 @@ async def stream_message(
             assistant_message.id,
             worker.run(
                 assistant_message_id=assistant_message.id,
+                workspace_id=workspace_id,
                 conversation_id=conversation_id,
                 request_id=request_id,
                 trace_id=trace_id,
@@ -119,6 +130,7 @@ async def stream_message(
         assistant_message.id
     ):
         assistant_message = await store.complete_assistant_message(
+            workspace_id,
             assistant_message.id,
             content=assistant_message.content,
             status="error",
@@ -188,13 +200,15 @@ async def abort_message(
     message_id: UUID,
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
     task_manager: Annotated[ChatTaskManager, Depends(get_chat_task_manager)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> dict[str, bool]:
     if task_manager.abort(message_id):
         return {"aborted": True}
 
-    message = await store.get_message(message_id)
+    message = await store.get_message(workspace_id, message_id)
     if message is not None and message.role == "assistant" and message.status == "streaming":
         await store.complete_assistant_message(
+            workspace_id,
             message_id,
             content=message.content,
             status="aborted",
@@ -211,8 +225,13 @@ async def abort_message(
 async def archive_conversation(
     conversation_id: UUID,
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> dict[str, bool]:
-    archived = await store.archive_conversation(conversation_id, archived=True)
+    archived = await store.archive_conversation(
+        workspace_id,
+        conversation_id,
+        archived=True,
+    )
     if not archived:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
     return {"archived": True}
@@ -225,8 +244,13 @@ async def archive_conversation(
 async def unarchive_conversation(
     conversation_id: UUID,
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> dict[str, bool]:
-    archived = await store.archive_conversation(conversation_id, archived=False)
+    archived = await store.archive_conversation(
+        workspace_id,
+        conversation_id,
+        archived=False,
+    )
     if not archived:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
     return {"archived": False}
@@ -239,8 +263,9 @@ async def unarchive_conversation(
 async def delete_conversation(
     conversation_id: UUID,
     store: Annotated[ConversationStore, Depends(get_conversation_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> None:
-    deleted = await store.delete_conversation(conversation_id)
+    deleted = await store.delete_conversation(workspace_id, conversation_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
 

@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator, Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -41,6 +41,7 @@ async def test_agent_runtime_converts_non_completed_result_to_error() -> None:
         async for event in runtime.stream(
             question="分析",
             history=[],
+            workspace_id=uuid4(),
         )
     ]
 

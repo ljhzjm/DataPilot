@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from app.artifacts.schemas import ArtifactView
 from app.artifacts.service import ArtifactStore
+from app.core.context import reset_workspace_id, set_workspace_id
 from app.datasets.schemas import DatasetView
 from app.sandbox.models import (
     ExecutionResult,
@@ -20,7 +21,12 @@ class FakeDatasetResolver:
     def __init__(self, datasets: list[DatasetView]) -> None:
         self._datasets = datasets
 
-    async def resolve_tables(self, table_names: list[str]) -> list[DatasetView]:
+    async def resolve_tables(
+        self,
+        workspace_id: UUID,
+        table_names: list[str],
+    ) -> list[DatasetView]:
+        del workspace_id
         by_name = {dataset.table_name: dataset for dataset in self._datasets}
         if any(name not in by_name for name in table_names):
             raise ValueError("Dataset is unavailable.")
@@ -48,7 +54,12 @@ class FakeSandboxService:
 
 
 class FakeArtifactStore:
-    async def persist(self, artifacts: list[SandboxArtifact]) -> list[ArtifactView]:
+    async def persist(
+        self,
+        workspace_id: UUID,
+        artifacts: list[SandboxArtifact],
+    ) -> list[ArtifactView]:
+        del workspace_id
         assert len(artifacts) == 1
         return [
             ArtifactView(
@@ -77,6 +88,13 @@ def dataset_view(table_name: str) -> DatasetView:
         created_at=now,
         updated_at=now,
     )
+
+
+@pytest.fixture(autouse=True)
+def workspace_context() -> object:
+    token = set_workspace_id(uuid4())
+    yield
+    reset_workspace_id(token)
 
 
 @pytest.mark.asyncio

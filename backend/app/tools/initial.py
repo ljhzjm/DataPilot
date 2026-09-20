@@ -1,8 +1,10 @@
 import asyncio
 from typing import Annotated, Any, Protocol
+from uuid import UUID
 
 from pydantic import Field
 
+from app.core.context import require_workspace_id
 from app.tools.chart import build_plot_chart_tool
 from app.tools.duckdb_engine import (
     DuckDBAnalyticsEngine,
@@ -24,10 +26,15 @@ class AnalyticsEngine(Protocol):
     def execute_select(self, sql: str, *, max_rows: int | None = None) -> QueryResult: ...
 
 
+class WorkspaceDatasetAccess(Protocol):
+    async def list_table_names(self, workspace_id: UUID) -> list[str]: ...
+
+
 def build_initial_tools(
     engine: AnalyticsEngine,
     *,
     sql_policy: SQLPolicy | None = None,
+    dataset_access: WorkspaceDatasetAccess | None = None,
 ) -> tuple[RegisteredTool, RegisteredTool, RegisteredTool, RegisteredTool]:
     policy = sql_policy or SQLPolicy()
 
@@ -43,10 +50,15 @@ def build_initial_tools(
         parallel_safe=True,
     )
     async def list_tables_tool() -> dict[str, Any]:
-        tables = await asyncio.to_thread(engine.list_tables)
+        if dataset_access is None:
+            tables = await asyncio.to_thread(engine.list_tables)
+            table_payload = [table.model_dump(mode="json") for table in tables]
+        else:
+            names = await dataset_access.list_table_names(require_workspace_id())
+            table_payload = [{"name": name, "table_type": "VIEW"} for name in names]
         return {
-            "tables": [table.model_dump(mode="json") for table in tables],
-            "count": len(tables),
+            "tables": table_payload,
+            "count": len(table_payload),
         }
 
     @tool(
@@ -66,6 +78,10 @@ def build_initial_tools(
             Field(min_length=1, description="要读取结构的 DuckDB 表名。"),
         ],
     ) -> dict[str, Any]:
+        if dataset_access is not None:
+            allowed_tables = await dataset_access.list_table_names(require_workspace_id())
+            if table_name not in allowed_tables:
+                raise KeyError(f"Unknown table: {table_name}")
         schema = await asyncio.to_thread(engine.get_schema, table_name)
         return schema.model_dump(mode="json")
 
@@ -90,7 +106,11 @@ def build_initial_tools(
             ),
         ],
     ) -> dict[str, Any]:
-        allowed_tables = await asyncio.to_thread(engine.list_table_names)
+        allowed_tables = (
+            await dataset_access.list_table_names(require_workspace_id())
+            if dataset_access is not None
+            else await asyncio.to_thread(engine.list_table_names)
+        )
         safe_sql = policy.validate(sql, allowed_tables=allowed_tables)
         result = await asyncio.to_thread(engine.execute_select, safe_sql)
         return result.model_dump(mode="json")
@@ -102,9 +122,14 @@ def build_initial_registry(
     engine: AnalyticsEngine,
     *,
     sql_policy: SQLPolicy | None = None,
+    dataset_access: WorkspaceDatasetAccess | None = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
-    for registered_tool in build_initial_tools(engine, sql_policy=sql_policy):
+    for registered_tool in build_initial_tools(
+        engine,
+        sql_policy=sql_policy,
+        dataset_access=dataset_access,
+    ):
         registry.register(registered_tool)
     return registry
 

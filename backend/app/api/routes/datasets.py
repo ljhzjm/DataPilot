@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 
+from app.api.dependencies import get_workspace_id
 from app.datasets.factory import build_dataset_service
 from app.datasets.processor import DatasetProcessingError
 from app.datasets.schemas import DatasetSummary, DatasetView
@@ -24,9 +25,14 @@ def get_dataset_service(request: Request) -> DatasetService:
 async def upload_dataset(
     file: Annotated[UploadFile, File()],
     service: Annotated[DatasetService, Depends(get_dataset_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> DatasetView:
     try:
-        return await service.ingest(file.filename or "", file)
+        return await service.ingest(
+            workspace_id,
+            file.filename or "",
+            file,
+        )
     except DatasetProcessingError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -37,16 +43,18 @@ async def upload_dataset(
 @router.get("", response_model=list[DatasetSummary])
 async def list_datasets(
     service: Annotated[DatasetService, Depends(get_dataset_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> list[DatasetSummary]:
-    return await service.list_datasets()
+    return await service.list_datasets(workspace_id)
 
 
 @router.get("/{dataset_id}", response_model=DatasetView)
 async def get_dataset(
     dataset_id: UUID,
     service: Annotated[DatasetService, Depends(get_dataset_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> DatasetView:
-    dataset = await service.get_dataset(dataset_id)
+    dataset = await service.get_dataset(workspace_id, dataset_id)
     if dataset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found.")
     return dataset
@@ -56,8 +64,9 @@ async def get_dataset(
 async def delete_dataset(
     dataset_id: UUID,
     service: Annotated[DatasetService, Depends(get_dataset_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> None:
-    deleted = await service.delete_dataset(dataset_id)
+    deleted = await service.delete_dataset(workspace_id, dataset_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found.")
 
@@ -66,6 +75,7 @@ async def delete_dataset(
 async def preview_dataset(
     dataset_id: UUID,
     service: Annotated[DatasetService, Depends(get_dataset_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
     limit: int = 20,
 ) -> QueryResult:
     if limit < 1 or limit > 100:
@@ -73,7 +83,11 @@ async def preview_dataset(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Preview limit must be between 1 and 100.",
         )
-    preview = await service.preview_dataset(dataset_id, limit=limit)
+    preview = await service.preview_dataset(
+        workspace_id,
+        dataset_id,
+        limit=limit,
+    )
     if preview is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

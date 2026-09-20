@@ -1,6 +1,7 @@
 from typing import cast
+from uuid import UUID
 
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 
 from app.chat.events import EventBroker
 from app.chat.runtime import ChatRuntime
@@ -27,3 +28,25 @@ def get_event_broker(request: Request) -> EventBroker:
 
 def get_chat_task_manager(request: Request) -> ChatTaskManager:
     return cast(ChatTaskManager, request.app.state.chat_task_manager)
+
+
+def get_workspace_id(request: Request) -> UUID:
+    auth = getattr(request.state, "auth", None)
+    workspace_id = getattr(auth, "workspace_id", None)
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+    return cast(UUID, workspace_id)
+
+
+def get_user_id(request: Request) -> UUID:
+    auth = getattr(request.state, "auth", None)
+    user_id = getattr(auth, "user_id", None)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+    return cast(UUID, user_id)

@@ -27,6 +27,7 @@ class ArtifactStore:
 
     async def persist(
         self,
+        workspace_id: UUID,
         artifacts: list[SandboxArtifact],
     ) -> list[ArtifactView]:
         if not artifacts:
@@ -48,6 +49,7 @@ class ArtifactStore:
                     await asyncio.to_thread(target.write_bytes, content)
                     record = Artifact(
                         id=artifact_id,
+                        workspace_id=workspace_id,
                         filename=relative_path.name,
                         stored_path=str(target),
                         mime_type=(
@@ -81,9 +83,18 @@ class ArtifactService:
     ) -> None:
         self._session_factory = session_factory
 
-    async def get(self, artifact_id: UUID) -> Artifact | None:
+    async def get(
+        self,
+        workspace_id: UUID,
+        artifact_id: UUID,
+    ) -> Artifact | None:
         async with self._session_factory() as session:
-            record = await session.scalar(select(Artifact).where(Artifact.id == artifact_id))
+            record = await session.scalar(
+                select(Artifact).where(
+                    Artifact.id == artifact_id,
+                    Artifact.workspace_id == workspace_id,
+                )
+            )
             return record if isinstance(record, Artifact) else None
 
 

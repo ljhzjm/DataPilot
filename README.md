@@ -1,12 +1,12 @@
 # DataPilot
 
-DataPilot 是一个对话式数据分析智能体。当前仓库已完成自实现 Agent 工具调用循环、NL2SQL 自纠错、结构化图表、DuckDB 只读查询、安全 SQL 护栏、独立 Docker Python 沙箱、前端执行轨迹、会话持久化、可观测性和确定性 Agent 评测。
+DataPilot 是一个对话式数据分析智能体。当前仓库已完成自实现 Agent 工具调用循环、NL2SQL 模块、结构化图表、DuckDB 只读查询、安全 SQL 护栏、独立 Docker Python 沙箱、用户与工作空间隔离、API 限流、前端执行轨迹、会话持久化、可观测性、确定性及真实模型评测和 HTTP 压测。
 
 ## 技术栈
 
 - 前端：Vue 3、TypeScript、Vite、Pinia、Vue Router、Element Plus
 - 后端：Python 3.11、FastAPI、SQLAlchemy 2.0、uv
-- 数据：PostgreSQL 16 + pgvector、Redis、DuckDB
+- 数据：PostgreSQL 16（pgvector 镜像，当前未使用向量能力）、Redis、DuckDB
 - 安全执行：独立 Docker 沙箱镜像
 - 部署：Docker Compose
 
@@ -44,17 +44,18 @@ Compose 会先运行独立的 `migrate` 服务执行 `alembic upgrade head`，�
 docker compose --profile sandbox down
 ```
 
-沙箱服务使用独立 profile。它不会获得业务网络，根文件系统只读，并限制为 512 MB 内存、64 个进程和 1 个 CPU。后端通过 Docker Socket 基于该镜像按任务启动临时容器，而不是在 FastAPI 进程内执行模型生成的代码。
+沙箱服务使用独立 profile。它不会获得业务网络，根文件系统只读，并限制为 512 MB 内存、64 个进程和 1 个 CPU。FastAPI 后端通过 HTTP 调用独立 `sandbox-runner`，由 Runner 持有 Docker Socket 并按任务启动临时容器，后端不会在 FastAPI 进程内执行模型生成的代码。
+
+首次启动后访问前端并注册账号。数据库中如果没有用户，第一个注册用户会接管已有默认工作空间，因此可以继续访问此前上传的数据和会话；后续用户会自动获得独立工作空间。
 
 ## 当前 Agent 能力
 
 - LLM 工具调用循环，不依赖框架 Agent。
 - 并发或串行执行工具调用，并将结果回填消息。
 - `@tool` 装饰器根据函数签名和 Pydantic 字段生成 JSON Schema。
-- `list_tables`、`get_schema`、`run_sql` 三个初始工具。
-- NL2SQL Prompt 注入表结构、字段类型和前 3 行样例。
-- SQL 失败自动回填错误并最多重试 2 次。
-- 空结果由模型返回“歧义”或“无数据”JSON，不生成硬编答案。
+- `list_tables`、`get_schema`、`run_sql` 三个基础查询工具。
+- 独立 NL2SQL 模块会注入表结构、字段类型和前 3 行样例。
+- 当前对话 Agent 通过工具循环处理 SQL 错误；独立 `NL2SQLService` 额外支持最多重试 2 次和空结果 JSON 判定，但尚未替代主对话工具循环。
 - `plot_chart` 只接受结构化 Chart Spec，禁止模型直接执行绘图代码。
 - SQL 单语句、只读、表白名单和危险函数校验。
 - 最大步数、Token 预算和连续重复工具调用检测。
@@ -63,7 +64,7 @@ docker compose --profile sandbox down
 - 沙箱产物写入隔离 Volume，仅回收 `.csv`、`.json`、`.png` 并持久化下载地址。
 - 确定性 Agent 评测覆盖工具编排、自纠错、循环检测和安全预算，可接入 CI。
 - 前端按需加载 Element Plus、ECharts 和抽屉组件，支持会话、CSV 和图表导出。
-- DuckDB CSV/Parquet 查询和 PostgreSQL 只读事务执行器。
+- DuckDB CSV/Parquet 查询，以及底层 PostgreSQL 只读事务执行器；目前尚未提供外部数据库数据源配置界面。
 - MCP Client/Server 集成，支持启动重试、自动重连、工具热刷新、Ping 健康检查和统一注册。
 - 独立 Sandbox Runner 持有 Docker Socket，FastAPI 后端不再直接控制 Docker。
 
@@ -79,9 +80,11 @@ LLM_DEFAULT_MODEL=deepseek-chat
 LLM_TASK_MODELS={"sql":"deepseek-reasoner","intent":"deepseek-chat"}
 ```
 
-未配置 `LLM_API_KEY` 时，DataPilot 可使用预览运行时启动。将
-`CHAT_RUNTIME_MODE=agent` 后，聊天 SSE 会使用真实模型、Agent 工具循环、
-DuckDB 数据集、本地工具和 MCP 工具。
+运行模式：
+
+- `CHAT_RUNTIME_MODE=preview`：使用固定预览轨迹，不需要模型密钥。
+- `CHAT_RUNTIME_MODE=agent`：使用真实 OpenAI 兼容模型；未配置有效 `LLM_API_KEY` 时返回“真实模型运行时尚未配置”。
+- `CHAT_RUNTIME_MODE=disabled`：关闭聊天运行时。
 
 ## 数据集上传
 
@@ -119,6 +122,27 @@ uv run python -m app.evaluation
 
 完整用例和扩展方式见 [Agent 评测文档](docs/agent-evaluation.md)。
 
+真实模型评测：
+
+```powershell
+uv run python -m app.evaluation --live
+```
+
+未配置 `LLM_API_KEY` 时真实模型评测会以退出码 `2` 结束。
+
+## 认证与工作空间
+
+后端通过 HttpOnly Cookie 或 Bearer Token 认证，会话令牌仅以 SHA-256 摘要形式写入
+PostgreSQL。会话、数据集、产物和模型用量均按 `workspace_id` 隔离。
+
+- `POST /api/auth/register`：注册并创建或接管工作空间
+- `POST /api/auth/login`：登录并设置 HttpOnly Cookie
+- `POST /api/auth/logout`：注销当前会话
+- `GET /api/auth/me`：读取当前用户和工作空间
+
+登录和注册接口默认限制为 10 次/分钟/IP，其他 API 默认限制为 120 次/分钟/工作空间。
+可通过 `AUTH_*` 环境变量调整。健康检查接口保持公开。
+
 ## 前端性能与导出
 
 - Element Plus 组件和样式按需引入，不再打包完整组件库。
@@ -127,6 +151,18 @@ uv run python -m app.evaluation
 - 生产构建按 Vue、Markdown、图表和页面组件拆分 Chunk。
 - 会话可导出为 Markdown，包含消息、步骤、工具参数和结果。
 - 查询结果可导出为带 UTF-8 BOM 的 CSV，图表可导出为 2 倍像素 PNG。
+
+## 压测
+
+内置 HTTP 压测命令，不依赖 k6 或 JMeter：
+
+```powershell
+Set-Location backend
+uv run python -m app.loadtest --requests 200 --concurrency 20
+```
+
+报告包含 RPS、平均延迟、P50、P95、P99、错误率和状态码分布。完整说明见
+[评测与压测文档](docs/evaluation-and-load-testing.md)。
 
 ## SSE 可靠性
 
@@ -189,6 +225,7 @@ DataPilot/
 ├── backend/          # FastAPI、Agent、工具、沙箱与 Alembic 迁移
 ├── frontend/         # Vue 3 应用
 ├── sandbox/          # 不可信 Python 代码的隔离执行镜像
+├── docs/             # MCP、评测与压测文档
 ├── docker-compose.yml
 └── CLAUDE.md         # 项目级强制约束
 ```

@@ -3,19 +3,7 @@ import type {
   ConversationPage,
   StreamEvent,
 } from '../types/chat'
-
-interface ApiErrorBody {
-  detail?: string
-}
-
-async function apiRequest<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as ApiErrorBody
-    throw new Error(body.detail || `请求失败：${response.status}`)
-  }
-  return (await response.json()) as T
-}
+import { apiFetch, apiRequest } from './client'
 
 export function listConversations(options?: {
   limit?: number
@@ -57,7 +45,7 @@ export async function archiveConversation(
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
-  const response = await fetch(`/api/conversations/${conversationId}`, {
+  const response = await apiFetch(`/api/conversations/${conversationId}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -82,7 +70,7 @@ export async function streamMessage(
   if (options.lastEventId) {
     headers['Last-Event-ID'] = options.lastEventId
   }
-  const response = await fetch(`/api/conversations/${conversationId}/messages/stream`, {
+  const response = await apiFetch(`/api/conversations/${conversationId}/messages/stream`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -160,7 +148,7 @@ export async function abortMessage(
   conversationId: string,
   messageId: string,
 ): Promise<void> {
-  await fetch(
+  await apiFetch(
     `/api/conversations/${conversationId}/messages/${messageId}/abort`,
     {
       method: 'POST',

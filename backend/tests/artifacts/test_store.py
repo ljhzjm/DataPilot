@@ -2,6 +2,7 @@ import asyncio
 import base64
 from pathlib import Path
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -46,6 +47,7 @@ async def test_artifact_store_persists_validated_files(tmp_path: Path) -> None:
     content = b"region,total\nEast,42\n"
 
     views = await store.persist(
+        uuid4(),
         [
             SandboxArtifact(
                 path="result.csv",
@@ -53,7 +55,7 @@ async def test_artifact_store_persists_validated_files(tmp_path: Path) -> None:
                 size=len(content),
                 content_base64=base64.b64encode(content).decode("ascii"),
             )
-        ]
+        ],
     )
 
     assert factory.session.commits == 1
@@ -78,6 +80,7 @@ async def test_artifact_store_error_only_removes_current_batch(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="size mismatch"):
         await store.persist(
+            uuid4(),
             [
                 SandboxArtifact(
                     path="broken.csv",
@@ -85,7 +88,7 @@ async def test_artifact_store_error_only_removes_current_batch(tmp_path: Path) -
                     size=100,
                     content_base64=base64.b64encode(b"short").decode("ascii"),
                 )
-            ]
+            ],
         )
 
     assert historical.read_bytes() == b"keep"

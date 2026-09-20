@@ -25,6 +25,7 @@ class ChatWorker:
         self,
         *,
         assistant_message_id: UUID,
+        workspace_id: UUID,
         conversation_id: UUID,
         request_id: UUID,
         trace_id: UUID,
@@ -51,6 +52,7 @@ class ChatWorker:
             async for event in self._runtime.stream(
                 question=question,
                 history=history,
+                workspace_id=workspace_id,
                 trace_id=trace_id,
             ):
                 if event.type is RuntimeEventType.STEP and event.step is not None:
@@ -130,6 +132,7 @@ class ChatWorker:
             try:
                 await asyncio.shield(
                     self._store.complete_assistant_message(
+                        workspace_id,
                         assistant_message_id,
                         content=accumulated_text,
                         status=message_status,

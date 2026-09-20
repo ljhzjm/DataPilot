@@ -31,7 +31,12 @@ class DatasetService:
         self._session_factory = session_factory
         self._engine = engine
 
-    async def ingest(self, filename: str, upload: AsyncUpload) -> DatasetView:
+    async def ingest(
+        self,
+        workspace_id: UUID,
+        filename: str,
+        upload: AsyncUpload,
+    ) -> DatasetView:
         dataset_id = uuid4()
         processed = await self._processor.process(
             dataset_id=dataset_id,
@@ -40,7 +45,7 @@ class DatasetService:
         )
         try:
             async with self._session_factory() as session:
-                dataset = _dataset_from_processed(processed)
+                dataset = _dataset_from_processed(processed, workspace_id)
                 session.add(dataset)
                 await session.commit()
                 await session.refresh(dataset)
@@ -49,21 +54,41 @@ class DatasetService:
             self._processor.remove(dataset_id, processed.table_name)
             raise
 
-    async def list_datasets(self) -> list[DatasetSummary]:
-        statement = select(Dataset).order_by(desc(Dataset.created_at))
+    async def list_datasets(self, workspace_id: UUID) -> list[DatasetSummary]:
+        statement = (
+            select(Dataset)
+            .where(Dataset.workspace_id == workspace_id)
+            .order_by(desc(Dataset.created_at))
+        )
         async with self._session_factory() as session:
             datasets = list((await session.scalars(statement)).all())
         return [_dataset_summary(dataset) for dataset in datasets]
 
-    async def get_dataset(self, dataset_id: UUID) -> DatasetView | None:
+    async def get_dataset(
+        self,
+        workspace_id: UUID,
+        dataset_id: UUID,
+    ) -> DatasetView | None:
         async with self._session_factory() as session:
-            dataset = await session.get(Dataset, dataset_id)
+            dataset = await session.scalar(
+                select(Dataset).where(
+                    Dataset.id == dataset_id,
+                    Dataset.workspace_id == workspace_id,
+                )
+            )
             return _dataset_view(dataset) if dataset is not None else None
 
-    async def resolve_tables(self, table_names: list[str]) -> list[DatasetView]:
+    async def resolve_tables(
+        self,
+        workspace_id: UUID,
+        table_names: list[str],
+    ) -> list[DatasetView]:
         if not table_names:
             return []
-        statement = select(Dataset).where(Dataset.table_name.in_(table_names))
+        statement = select(Dataset).where(
+            Dataset.workspace_id == workspace_id,
+            Dataset.table_name.in_(table_names),
+        )
         async with self._session_factory() as session:
             datasets = list((await session.scalars(statement)).all())
         by_name = {dataset.table_name: dataset for dataset in datasets}
@@ -76,25 +101,53 @@ class DatasetService:
             raise ValueError(f"Datasets are not available for sandbox mounting: {names}.")
         return [_dataset_view(by_name[name]) for name in table_names]
 
-    async def delete_dataset(self, dataset_id: UUID) -> bool:
+    async def list_table_names(self, workspace_id: UUID) -> list[str]:
+        statement = select(Dataset.table_name).where(
+            Dataset.workspace_id == workspace_id,
+            Dataset.status == "ready",
+        )
         async with self._session_factory() as session:
-            dataset = await session.get(Dataset, dataset_id)
+            return list((await session.scalars(statement)).all())
+
+    async def delete_dataset(
+        self,
+        workspace_id: UUID,
+        dataset_id: UUID,
+    ) -> bool:
+        async with self._session_factory() as session:
+            dataset = await session.scalar(
+                select(Dataset).where(
+                    Dataset.id == dataset_id,
+                    Dataset.workspace_id == workspace_id,
+                )
+            )
             if dataset is None:
                 return False
             table_name = dataset.table_name
-            await session.execute(delete(Dataset).where(Dataset.id == dataset_id))
+            await session.execute(
+                delete(Dataset).where(
+                    Dataset.id == dataset_id,
+                    Dataset.workspace_id == workspace_id,
+                )
+            )
             await session.commit()
         self._processor.remove(dataset_id, table_name)
         return True
 
     async def preview_dataset(
         self,
+        workspace_id: UUID,
         dataset_id: UUID,
         *,
         limit: int = 20,
     ) -> QueryResult | None:
         async with self._session_factory() as session:
-            dataset = await session.get(Dataset, dataset_id)
+            dataset = await session.scalar(
+                select(Dataset).where(
+                    Dataset.id == dataset_id,
+                    Dataset.workspace_id == workspace_id,
+                )
+            )
             if dataset is None or dataset.status != "ready":
                 return None
             table_name = dataset.table_name
@@ -130,9 +183,13 @@ class DatasetService:
                 await session.commit()
 
 
-def _dataset_from_processed(processed: ProcessedDataset) -> Dataset:
+def _dataset_from_processed(
+    processed: ProcessedDataset,
+    workspace_id: UUID,
+) -> Dataset:
     return Dataset(
         id=processed.id,
+        workspace_id=workspace_id,
         name=processed.name,
         original_filename=processed.original_filename,
         table_name=processed.table_name,

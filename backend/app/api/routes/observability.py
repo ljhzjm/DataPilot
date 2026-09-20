@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.dependencies import get_workspace_id
 from app.db.session import AsyncSessionLocal
 from app.observability.schemas import TraceView, UsagePage, UsageSummary
 from app.observability.service import ObservabilityService
@@ -18,11 +19,13 @@ def get_observability_service() -> ObservabilityService:
 @router.get("/summary", response_model=UsageSummary)
 async def usage_summary(
     service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
     start_at: datetime | None = None,
     end_at: datetime | None = None,
     conversation_id: UUID | None = None,
 ) -> UsageSummary:
     return await service.summary(
+        workspace_id=workspace_id,
         start_at=start_at,
         end_at=end_at,
         conversation_id=conversation_id,
@@ -32,6 +35,7 @@ async def usage_summary(
 @router.get("/usage", response_model=UsagePage)
 async def usage_records(
     service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     start_at: datetime | None = None,
@@ -39,6 +43,7 @@ async def usage_records(
     conversation_id: UUID | None = None,
 ) -> UsagePage:
     return await service.list_usage(
+        workspace_id=workspace_id,
         limit=limit,
         offset=offset,
         start_at=start_at,
@@ -51,8 +56,9 @@ async def usage_records(
 async def trace_detail(
     trace_id: UUID,
     service: Annotated[ObservabilityService, Depends(get_observability_service)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> TraceView:
-    trace = await service.get_trace(trace_id)
+    trace = await service.get_trace(workspace_id, trace_id)
     if trace is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
